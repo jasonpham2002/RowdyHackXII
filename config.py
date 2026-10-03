@@ -40,6 +40,16 @@ LEFT_EYE_RING = (362, 382, 381, 380, 374, 373, 390, 249, 263,
                  466, 388, 387, 386, 385, 384, 398)
 
 # --------------------------------------------------------------------------- #
+# Iris landmarks (require the 478-point refined mesh, center listed first).
+# We don't trust MediaPipe's left/right labels; each iris group is matched to
+# the nearest eye at runtime. The iris diameter is a stable physical reference,
+# so openness = eyelid_gap / iris_diameter is robust to eye SHAPE and distance.
+# --------------------------------------------------------------------------- #
+USE_IRIS = True                 # iris-normalized openness (falls back to EAR)
+IRIS_GROUP_A = (468, 469, 470, 471, 472)   # center, then 4 ring points
+IRIS_GROUP_B = (473, 474, 475, 476, 477)
+
+# --------------------------------------------------------------------------- #
 # EAR smoothing
 # --------------------------------------------------------------------------- #
 SMOOTH_WINDOW = 5           # rolling median window (frames) to kill jitter
@@ -58,8 +68,18 @@ BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a 
 # Calibration defaults (overwritten after running calibration).
 # --------------------------------------------------------------------------- #
 DEFAULT_CLOSE_THRESH = 0.21     # EAR below this == eye considered closed
-DEFAULT_MIN_EAR_DROP = 0.06     # min open->closed EAR drop for calibration to trust itself
+DEFAULT_IRIS_CLOSE_THRESH = 0.33  # iris-openness below this == closed (iris metric)
+DEFAULT_MIN_EAR_DROP = 0.06     # min open->closed drop for calibration to trust itself
 CLOSE_RATIO = 0.6               # close_thresh sits 60% of the way from open mean toward closed
+
+
+def default_close_thresh() -> float:
+    """Default closed-detection threshold for the active metric."""
+    return DEFAULT_IRIS_CLOSE_THRESH if USE_IRIS else DEFAULT_CLOSE_THRESH
+
+
+def active_metric() -> str:
+    return "iris" if USE_IRIS else "ear"
 CALIB_OPEN_SECONDS = 4.0
 CALIB_CLOSED_SECONDS = 2.5
 CALIB_COUNTDOWN_SECONDS = 2.0
@@ -97,6 +117,7 @@ class RuntimeConfig:
     closed_mean: float = 0.10
     close_thresh_left: Optional[float] = None
     close_thresh_right: Optional[float] = None
+    metric: str = ""                                    # "iris" or "ear"
 
     def __post_init__(self) -> None:
         if self.close_thresh_left is None:

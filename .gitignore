@@ -9,6 +9,9 @@ env/
 # Calibration output
 calibration.json
 
+# Test assets
+portrait.jpg
+
 # OS / editor
 .DS_Store
 Thumbs.db

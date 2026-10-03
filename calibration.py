@@ -54,6 +54,7 @@ def run_calibration(cap, tracker: EyeTracker,
     open_r: List[float] = []
     closed_l: List[float] = []
     closed_r: List[float] = []
+    metric_seen = config.active_metric()
 
     for name, duration, message, color in phases:
         start = time.perf_counter()
@@ -67,6 +68,8 @@ def run_calibration(cap, tracker: EyeTracker,
             elapsed = time.perf_counter() - start
             remaining = max(0.0, duration - elapsed)
 
+            if reading.found:
+                metric_seen = reading.metric
             if name == "open" and reading.found:
                 open_samples.append(reading.ear_avg)
                 open_l.append(reading.ear_left)
@@ -126,5 +129,6 @@ def run_calibration(cap, tracker: EyeTracker,
         closed_mean=round(closed_mean, 4),
         close_thresh_left=round(t_left, 4),
         close_thresh_right=round(t_right, 4),
+        metric=metric_seen,
     )
     return rc

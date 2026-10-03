@@ -40,20 +40,28 @@ def _draw_eyes(frame, reading, runtime):
             continue
         pts = np.array(ring, dtype=np.int32)
         cv2.polylines(frame, [pts], True, RED if closed else GREEN, 2, cv2.LINE_AA)
+    # Iris circles (when the iris metric is active).
+    for iris in (reading.iris_left, reading.iris_right):
+        if iris is not None:
+            cx, cy, r = iris
+            cv2.circle(frame, (cx, cy), max(1, r), CYAN, 2, cv2.LINE_AA)
+            cv2.circle(frame, (cx, cy), 2, CYAN, -1, cv2.LINE_AA)
 
 
 def _draw_ear_bar(frame, reading, runtime):
-    """Horizontal EAR meter with the close threshold marked."""
+    """Horizontal openness meter with the close threshold marked."""
     x, y, w, h = 30, frame.shape[0] - 70, 300, 22
-    _text(frame, "EAR", (x, y - 8), GREY, 0.6, 1)
+    label = "IRIS" if reading.metric == "iris" else "EAR"
+    _text(frame, label, (x, y - 8), GREY, 0.6, 1)
     cv2.rectangle(frame, (x, y), (x + w, y + h), GREY, 1)
-    max_ear = 0.45
-    val = min(reading.ear_avg, max_ear) / max_ear
+    # Auto-scale the bar to the metric's range (iris openness runs higher).
+    max_v = max(0.45, runtime.open_mean * 1.4, runtime.close_thresh * 1.6)
+    val = min(reading.ear_avg, max_v) / max_v
     fill = int(w * val)
     closed = reading.ear_avg < runtime.close_thresh
     cv2.rectangle(frame, (x, y), (x + fill, y + h),
                   RED if closed else GREEN, -1)
-    tx = x + int(w * min(runtime.close_thresh, max_ear) / max_ear)
+    tx = x + int(w * min(runtime.close_thresh, max_v) / max_v)
     cv2.line(frame, (tx, y - 4), (tx, y + h + 4), YELLOW, 2)
     _text(frame, f"{reading.ear_avg:0.3f}", (x + w + 12, y + h - 3), WHITE, 0.6, 1)
     _text(frame, f"thr {runtime.close_thresh:0.3f}  [ ]=sensitivity",
