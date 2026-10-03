@@ -1,0 +1,104 @@
+"""Central configuration for the eye-blink Morse decoder.
+
+Every tunable number lives here so thresholds can be tweaked quickly during a
+demo without hunting through the code. A small ``RuntimeConfig`` dataclass holds
+the values that calibration overwrites at runtime (and that can be persisted to
+``calibration.json``).
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+# --------------------------------------------------------------------------- #
+# Camera
+# --------------------------------------------------------------------------- #
+CAMERA_INDEX = 0
+FRAME_WIDTH = 1280          # 720p HD -> 1280x720
+FRAME_HEIGHT = 720
+FLIP_HORIZONTAL = True      # mirror the frame so it feels like a selfie view
+
+# --------------------------------------------------------------------------- #
+# MediaPipe FaceMesh eyelid landmark indices used for the Eye Aspect Ratio.
+# Order matters: (p1, p2, p3, p4, p5, p6) where
+#   EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
+# p1/p4 are the eye corners (horizontal), the rest are top/bottom lids.
+# These are the standard 6-point sets for each eye in the 468-landmark mesh.
+# --------------------------------------------------------------------------- #
+# Anatomical RIGHT eye (appears on the LEFT of a mirrored frame).
+RIGHT_EYE_EAR = (33, 160, 158, 133, 153, 144)
+# Anatomical LEFT eye (appears on the RIGHT of a mirrored frame).
+LEFT_EYE_EAR = (362, 385, 387, 263, 373, 380)
+
+# Fuller contours (just for drawing a nice outline around each eye in the HUD).
+RIGHT_EYE_RING = (33, 7, 163, 144, 145, 153, 154, 155, 133,
+                  173, 157, 158, 159, 160, 161, 246)
+LEFT_EYE_RING = (362, 382, 381, 380, 374, 373, 390, 249, 263,
+                 466, 388, 387, 386, 385, 384, 398)
+
+# --------------------------------------------------------------------------- #
+# EAR smoothing
+# --------------------------------------------------------------------------- #
+SMOOTH_WINDOW = 5           # rolling median window (frames) to kill jitter
+
+# --------------------------------------------------------------------------- #
+# Blink / wink timing (milliseconds). These drive the state machine.
+# --------------------------------------------------------------------------- #
+BLINK_MIN_MS = 120          # closures shorter than this are ignored (natural blink)
+DOT_MAX_MS = 450            # 120..450 ms (both eyes) -> DOT, longer -> DASH
+LETTER_GAP_MS = 700         # eyes open this long -> commit the current letter
+WORD_GAP_MS = 1500          # eyes open this long -> commit letter + insert space
+WINK_MIN_MS = 300           # a single eye must stay closed this long to count as a wink
+BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a blink
+
+# --------------------------------------------------------------------------- #
+# Calibration defaults (overwritten after running calibration).
+# --------------------------------------------------------------------------- #
+DEFAULT_CLOSE_THRESH = 0.21     # EAR below this == eye considered closed
+DEFAULT_MIN_EAR_DROP = 0.06     # min open->closed EAR drop for calibration to trust itself
+CLOSE_RATIO = 0.6               # close_thresh sits 60% of the way from open mean toward closed
+CALIB_OPEN_SECONDS = 4.0
+CALIB_CLOSED_SECONDS = 2.5
+CALIB_COUNTDOWN_SECONDS = 2.0
+
+# --------------------------------------------------------------------------- #
+# Prediction / UI
+# --------------------------------------------------------------------------- #
+NUM_SUGGESTIONS = 3
+VOCAB_SIZE = 50000          # how many English words to load from wordfreq
+AUDIO_CUES = True           # beep on dot/dash (Windows winsound; silently ignored elsewhere)
+
+CALIBRATION_FILE = Path(__file__).with_name("calibration.json")
+
+# FaceLandmarker model (MediaPipe Tasks API). Download with:
+#   python download_model.py
+MODEL_PATH = Path(__file__).with_name("models") / "face_landmarker.task"
+MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+    "face_landmarker/float16/1/face_landmarker.task"
+)
+
+
+@dataclass
+class RuntimeConfig:
+    """Values that calibration tunes per-user / per-lighting at runtime."""
+
+    close_thresh: float = DEFAULT_CLOSE_THRESH
+    min_ear_drop: float = DEFAULT_MIN_EAR_DROP
+    open_mean: float = 0.30
+    closed_mean: float = 0.10
+
+    def save(self, path: Path = CALIBRATION_FILE) -> None:
+        path.write_text(json.dumps(asdict(self), indent=2))
+
+    @classmethod
+    def load(cls, path: Path = CALIBRATION_FILE) -> "RuntimeConfig | None":
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+            return cls(**data)
+        except (ValueError, TypeError):
+            return None
