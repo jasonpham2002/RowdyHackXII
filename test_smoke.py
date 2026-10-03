@@ -2,8 +2,8 @@
 
 Run:  python test_smoke.py
 Exercises Morse decoding, word prediction, the blink/wink state machine via a
-simulated EAR timeline, and confirms the FaceLandmarker model loads and runs on
-a synthetic frame.
+simulated openness timeline, and confirms the FaceLandmarker model loads and
+runs on a synthetic frame.
 """
 
 from __future__ import annotations
@@ -21,19 +21,19 @@ from state_machine import BlinkStateMachine, Event
 @dataclass
 class FakeReading:
     found: bool = True
-    ear_left: float = 0.30
-    ear_right: float = 0.30
-    ear_avg: float = 0.30
+    open_left: float = 0.45
+    open_right: float = 0.45
+    open_avg: float = 0.45
 
 
 def _run(machine, left, right, start_ms, duration_ms, step=30):
-    """Feed frames with given per-eye EAR for a span, return collected events."""
+    """Feed frames with given per-eye openness for a span, return events."""
     events = []
     t = start_ms
     end = start_ms + duration_ms
     while t <= end:
-        r = FakeReading(ear_left=left, ear_right=right,
-                        ear_avg=(left + right) / 2)
+        r = FakeReading(open_left=left, open_right=right,
+                        open_avg=(left + right) / 2)
         events += machine.update(r, t)
         t += step
     return events, t

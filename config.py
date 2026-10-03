@@ -4,6 +4,10 @@ Every tunable number lives here so thresholds can be tweaked quickly during a
 demo without hunting through the code. A small ``RuntimeConfig`` dataclass holds
 the values that calibration overwrites at runtime (and that can be persisted to
 ``calibration.json``).
+
+Eye openness is measured with the IRIS method: ``eyelid_gap / iris_diameter``.
+The iris is a near-constant physical size, so this is robust to eye SHAPE and to
+viewing distance.
 """
 
 from __future__ import annotations
@@ -22,16 +26,15 @@ FRAME_HEIGHT = 720
 FLIP_HORIZONTAL = True      # mirror the frame so it feels like a selfie view
 
 # --------------------------------------------------------------------------- #
-# MediaPipe FaceMesh eyelid landmark indices used for the Eye Aspect Ratio.
-# Order matters: (p1, p2, p3, p4, p5, p6) where
-#   EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
-# p1/p4 are the eye corners (horizontal), the rest are top/bottom lids.
-# These are the standard 6-point sets for each eye in the 468-landmark mesh.
+# MediaPipe FaceLandmarker eyelid landmark indices used for the eyelid gap.
+# Order: (p1, p2, p3, p4, p5, p6) where p1/p4 are the eye corners (horizontal)
+# and the rest are top/bottom lids. The vertical gap is the average of
+# |p2-p6| and |p3-p5|.
 # --------------------------------------------------------------------------- #
 # Anatomical RIGHT eye (appears on the LEFT of a mirrored frame).
-RIGHT_EYE_EAR = (33, 160, 158, 133, 153, 144)
+RIGHT_EYE_LIDS = (33, 160, 158, 133, 153, 144)
 # Anatomical LEFT eye (appears on the RIGHT of a mirrored frame).
-LEFT_EYE_EAR = (362, 385, 387, 263, 373, 380)
+LEFT_EYE_LIDS = (362, 385, 387, 263, 373, 380)
 
 # Fuller contours (just for drawing a nice outline around each eye in the HUD).
 RIGHT_EYE_RING = (33, 7, 163, 144, 145, 153, 154, 155, 133,
@@ -42,15 +45,13 @@ LEFT_EYE_RING = (362, 382, 381, 380, 374, 373, 390, 249, 263,
 # --------------------------------------------------------------------------- #
 # Iris landmarks (require the 478-point refined mesh, center listed first).
 # We don't trust MediaPipe's left/right labels; each iris group is matched to
-# the nearest eye at runtime. The iris diameter is a stable physical reference,
-# so openness = eyelid_gap / iris_diameter is robust to eye SHAPE and distance.
+# the nearest eye at runtime.
 # --------------------------------------------------------------------------- #
-USE_IRIS = True                 # iris-normalized openness (falls back to EAR)
 IRIS_GROUP_A = (468, 469, 470, 471, 472)   # center, then 4 ring points
 IRIS_GROUP_B = (473, 474, 475, 476, 477)
 
 # --------------------------------------------------------------------------- #
-# EAR smoothing
+# Openness smoothing
 # --------------------------------------------------------------------------- #
 SMOOTH_WINDOW = 5           # rolling median window (frames) to kill jitter
 
@@ -66,20 +67,11 @@ BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a 
 
 # --------------------------------------------------------------------------- #
 # Calibration defaults (overwritten after running calibration).
+# openness = eyelid_gap / iris_diameter  (dimensionless).
 # --------------------------------------------------------------------------- #
-DEFAULT_CLOSE_THRESH = 0.21     # EAR below this == eye considered closed
-DEFAULT_IRIS_CLOSE_THRESH = 0.33  # iris-openness below this == closed (iris metric)
-DEFAULT_MIN_EAR_DROP = 0.06     # min open->closed drop for calibration to trust itself
+DEFAULT_CLOSE_THRESH = 0.33     # openness below this == eye considered closed
+DEFAULT_MIN_OPEN_DROP = 0.08    # min open->closed drop for calibration to trust itself
 CLOSE_RATIO = 0.6               # close_thresh sits 60% of the way from open mean toward closed
-
-
-def default_close_thresh() -> float:
-    """Default closed-detection threshold for the active metric."""
-    return DEFAULT_IRIS_CLOSE_THRESH if USE_IRIS else DEFAULT_CLOSE_THRESH
-
-
-def active_metric() -> str:
-    return "iris" if USE_IRIS else "ear"
 CALIB_OPEN_SECONDS = 4.0
 CALIB_CLOSED_SECONDS = 2.5
 CALIB_COUNTDOWN_SECONDS = 2.0
@@ -112,12 +104,11 @@ class RuntimeConfig:
     """
 
     close_thresh: float = DEFAULT_CLOSE_THRESH          # combined (for HUD/display)
-    min_ear_drop: float = DEFAULT_MIN_EAR_DROP
-    open_mean: float = 0.30
+    min_open_drop: float = DEFAULT_MIN_OPEN_DROP
+    open_mean: float = 0.45
     closed_mean: float = 0.10
     close_thresh_left: Optional[float] = None
     close_thresh_right: Optional[float] = None
-    metric: str = ""                                    # "iris" or "ear"
 
     def __post_init__(self) -> None:
         if self.close_thresh_left is None:
@@ -128,7 +119,7 @@ class RuntimeConfig:
     def nudge(self, delta: float) -> None:
         """Shift all thresholds (live sensitivity tuning). Lower == eyes stay
         'open' at smaller openings (fixes "I must open too wide")."""
-        lo, hi = 0.04, 0.45
+        lo, hi = 0.04, 0.9
         self.close_thresh = min(hi, max(lo, self.close_thresh + delta))
         self.close_thresh_left = min(hi, max(lo, (self.close_thresh_left or 0) + delta))
         self.close_thresh_right = min(hi, max(lo, (self.close_thresh_right or 0) + delta))

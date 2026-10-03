@@ -1,6 +1,6 @@
 """Blink / wink timing state machine.
 
-Converts a stream of per-eye EAR readings into discrete events:
+Converts a stream of per-eye openness readings into discrete events:
 
     DOT, DASH          - a both-eyes closure, classified by how long it was held
     LETTER_GAP         - eyes stayed open long enough to end the current letter
@@ -77,8 +77,8 @@ class BlinkStateMachine:
         events: List[Event] = []
 
         if reading.found:
-            left_closed = reading.ear_left < self.runtime.close_thresh_left
-            right_closed = reading.ear_right < self.runtime.close_thresh_right
+            left_closed = reading.open_left < self.runtime.close_thresh_left
+            right_closed = reading.open_right < self.runtime.close_thresh_right
         else:
             # No face: treat as "eyes open" so we don't accumulate a closure.
             left_closed = right_closed = False

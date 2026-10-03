@@ -34,13 +34,13 @@ def _panel(frame, x1, y1, x2, y2, alpha=0.55):
 
 
 def _draw_eyes(frame, reading, runtime):
-    for ring, closed in ((reading.left_ring, reading.ear_left < runtime.close_thresh_left),
-                         (reading.right_ring, reading.ear_right < runtime.close_thresh_right)):
+    for ring, closed in ((reading.left_ring, reading.open_left < runtime.close_thresh_left),
+                         (reading.right_ring, reading.open_right < runtime.close_thresh_right)):
         if not ring:
             continue
         pts = np.array(ring, dtype=np.int32)
         cv2.polylines(frame, [pts], True, RED if closed else GREEN, 2, cv2.LINE_AA)
-    # Iris circles (when the iris metric is active).
+    # Iris circles.
     for iris in (reading.iris_left, reading.iris_right):
         if iris is not None:
             cx, cy, r = iris
@@ -48,22 +48,21 @@ def _draw_eyes(frame, reading, runtime):
             cv2.circle(frame, (cx, cy), 2, CYAN, -1, cv2.LINE_AA)
 
 
-def _draw_ear_bar(frame, reading, runtime):
-    """Horizontal openness meter with the close threshold marked."""
+def _draw_openness_bar(frame, reading, runtime):
+    """Horizontal iris-openness meter with the close threshold marked."""
     x, y, w, h = 30, frame.shape[0] - 70, 300, 22
-    label = "IRIS" if reading.metric == "iris" else "EAR"
-    _text(frame, label, (x, y - 8), GREY, 0.6, 1)
+    _text(frame, "IRIS", (x, y - 8), GREY, 0.6, 1)
     cv2.rectangle(frame, (x, y), (x + w, y + h), GREY, 1)
-    # Auto-scale the bar to the metric's range (iris openness runs higher).
-    max_v = max(0.45, runtime.open_mean * 1.4, runtime.close_thresh * 1.6)
-    val = min(reading.ear_avg, max_v) / max_v
+    # Auto-scale the bar to the openness range.
+    max_v = max(0.6, runtime.open_mean * 1.4, runtime.close_thresh * 1.6)
+    val = min(reading.open_avg, max_v) / max_v
     fill = int(w * val)
-    closed = reading.ear_avg < runtime.close_thresh
+    closed = reading.open_avg < runtime.close_thresh
     cv2.rectangle(frame, (x, y), (x + fill, y + h),
                   RED if closed else GREEN, -1)
     tx = x + int(w * min(runtime.close_thresh, max_v) / max_v)
     cv2.line(frame, (tx, y - 4), (tx, y + h + 4), YELLOW, 2)
-    _text(frame, f"{reading.ear_avg:0.3f}", (x + w + 12, y + h - 3), WHITE, 0.6, 1)
+    _text(frame, f"{reading.open_avg:0.3f}", (x + w + 12, y + h - 3), WHITE, 0.6, 1)
     _text(frame, f"thr {runtime.close_thresh:0.3f}  [ ]=sensitivity",
           (x, y - 28), YELLOW, 0.55, 1)
 
@@ -122,7 +121,7 @@ def draw_hud(frame, reading, machine_state, runtime, engine,
 
     if reading.found:
         _draw_eyes(frame, reading, runtime)
-        _draw_ear_bar(frame, reading, runtime)
+        _draw_openness_bar(frame, reading, runtime)
     else:
         _text(frame, "No face detected", (30, h - 55), RED, 0.8, 2)
 

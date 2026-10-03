@@ -1,8 +1,8 @@
 """Interactive calibration.
 
-Captures the user's open-eye and closed-eye EAR distributions for a few seconds
-each, then derives an adaptive ``close_thresh`` plus a sanity ``min_ear_drop``
-floor. This is what makes the detector robust across people and lighting.
+Captures the user's open-eye and closed-eye iris-openness distributions for a
+few seconds each, then derives an adaptive per-eye ``close_thresh``. This is what
+makes the detector robust across people, eye shapes and lighting.
 """
 
 from __future__ import annotations
@@ -54,7 +54,6 @@ def run_calibration(cap, tracker: EyeTracker,
     open_r: List[float] = []
     closed_l: List[float] = []
     closed_r: List[float] = []
-    metric_seen = config.active_metric()
 
     for name, duration, message, color in phases:
         start = time.perf_counter()
@@ -68,22 +67,20 @@ def run_calibration(cap, tracker: EyeTracker,
             elapsed = time.perf_counter() - start
             remaining = max(0.0, duration - elapsed)
 
-            if reading.found:
-                metric_seen = reading.metric
             if name == "open" and reading.found:
-                open_samples.append(reading.ear_avg)
-                open_l.append(reading.ear_left)
-                open_r.append(reading.ear_right)
+                open_samples.append(reading.open_avg)
+                open_l.append(reading.open_left)
+                open_r.append(reading.open_right)
             elif name == "closed" and reading.found:
-                closed_samples.append(reading.ear_avg)
-                closed_l.append(reading.ear_left)
-                closed_r.append(reading.ear_right)
+                closed_samples.append(reading.open_avg)
+                closed_l.append(reading.open_left)
+                closed_r.append(reading.open_right)
 
             _put(frame, "CALIBRATION", 60, (255, 255, 0), 1.2, 3)
             _put(frame, message, 110, color)
             _put(frame, f"{remaining:0.1f}s", 160, (255, 255, 255))
             if reading.found:
-                _put(frame, f"EAR: {reading.ear_avg:0.3f}", 210,
+                _put(frame, f"openness: {reading.open_avg:0.3f}", 210,
                      (200, 200, 200), 0.7, 2)
             else:
                 _put(frame, "No face detected", 210, (0, 0, 255), 0.7, 2)
@@ -124,11 +121,10 @@ def run_calibration(cap, tracker: EyeTracker,
 
     rc = config.RuntimeConfig(
         close_thresh=round(close_thresh, 4),
-        min_ear_drop=round(max(open_mean - closed_mean, config.DEFAULT_MIN_EAR_DROP), 4),
+        min_open_drop=round(max(open_mean - closed_mean, config.DEFAULT_MIN_OPEN_DROP), 4),
         open_mean=round(open_mean, 4),
         closed_mean=round(closed_mean, 4),
         close_thresh_left=round(t_left, 4),
         close_thresh_right=round(t_right, 4),
-        metric=metric_seen,
     )
     return rc

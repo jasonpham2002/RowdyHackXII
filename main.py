@@ -1,7 +1,8 @@
 """Hands-free eye-blink Morse code decoder.
 
 Pipeline:
-    camera -> FaceMesh (EAR) -> blink/wink state machine -> Morse decode
+    camera -> FaceLandmarker (iris openness) -> blink/wink state machine
+    -> Morse decode
     -> text buffer + word prediction -> HUD (and optional OS typing).
 
 Run:
@@ -183,26 +184,18 @@ def main() -> None:
     tracker = EyeTracker()
 
     # ---- Calibration --------------------------------------------------- #
-    expected_metric = config.active_metric()
     runtime: Optional[config.RuntimeConfig] = None
     if args.skip_calib:
         runtime = config.RuntimeConfig.load()
-        # Discard calibration captured with a different openness metric.
-        if runtime is not None and runtime.metric and runtime.metric != expected_metric:
-            print(f"[calibration] saved metric '{runtime.metric}' != '{expected_metric}', "
-                  "ignoring; recalibrate with 'c'")
-            runtime = None
     if runtime is None and not args.skip_calib:
         runtime = run_calibration(cap, tracker, WINDOW)
         if runtime is not None and not args.no_save:
             runtime.save()
     if runtime is None:
-        runtime = config.RuntimeConfig(close_thresh=config.default_close_thresh(),
-                                       metric=expected_metric)
-        print(f"[calibration] using defaults close_thresh={runtime.close_thresh} "
-              f"(metric={expected_metric})")
+        runtime = config.RuntimeConfig()
+        print(f"[calibration] using defaults close_thresh={runtime.close_thresh}")
     else:
-        print(f"[calibration] metric={runtime.metric} close_thresh={runtime.close_thresh} "
+        print(f"[calibration] close_thresh={runtime.close_thresh} "
               f"(open={runtime.open_mean}, closed={runtime.closed_mean})")
 
     machine = BlinkStateMachine(runtime)
@@ -252,12 +245,11 @@ def main() -> None:
                 new_rc = run_calibration(cap, tracker, WINDOW)
                 if new_rc is not None:
                     runtime.close_thresh = new_rc.close_thresh
-                    runtime.min_ear_drop = new_rc.min_ear_drop
+                    runtime.min_open_drop = new_rc.min_open_drop
                     runtime.open_mean = new_rc.open_mean
                     runtime.closed_mean = new_rc.closed_mean
                     runtime.close_thresh_left = new_rc.close_thresh_left
                     runtime.close_thresh_right = new_rc.close_thresh_right
-                    runtime.metric = new_rc.metric
                     if not args.no_save:
                         runtime.save()
             elif key == ord("r"):
