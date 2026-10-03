@@ -1,9 +1,16 @@
-"""FaceLandmarker wrapper that turns a camera frame into per-eye openness.
+"""FaceLandmarker wrapper that detects eye open/closed from IRIS VISIBILITY.
 
-Openness is measured with the IRIS method: ``eyelid_gap / iris_diameter``.
-Because the iris is a near-constant physical size, this is robust to eye shape
-and to viewing distance. Values are smoothed with a short rolling median so
-single-frame landmark jitter does not create phantom blinks.
+This does NOT measure eyelid shape at all. It locates each iris from the iris
+landmarks, then looks at the image pixels where the iris should be:
+
+    - When the eye is OPEN the iris/pupil is visible: the center is dark and the
+      local region has high contrast (dark iris + pupil + bright sclera).
+    - When the eye is CLOSED the eyelid skin covers the iris: the region is
+      smooth and skin-toned (bright, low contrast).
+
+So openness = darkness(iris center vs surround) + local contrast. A higher value
+means "the iris is there" (open); a low value means "no iris" (closed).
+Calibration maps these per-eye values to a threshold.
 """
 
 from __future__ import annotations
@@ -26,29 +33,25 @@ except ImportError as exc:  # pragma: no cover - import guard
 
 import config
 
+_LUMA = np.array([0.299, 0.587, 0.114], dtype=np.float32)   # RGB -> gray
+
 
 @dataclass
 class EyeReading:
-    """One frame's worth of eye measurements (iris openness)."""
+    """One frame's worth of eye measurements (iris visibility)."""
 
     found: bool = False
-    open_left: float = 0.0          # smoothed openness, anatomical left eye
-    open_right: float = 0.0         # smoothed openness, anatomical right eye
+    open_left: float = 0.0          # smoothed iris-visibility, anatomical left eye
+    open_right: float = 0.0         # smoothed iris-visibility, anatomical right eye
     open_avg: float = 0.0
     open_left_raw: float = 0.0
     open_right_raw: float = 0.0
-    # Pixel coordinates for drawing eye outlines in the HUD.
+    # Pixel coordinates for drawing eye outlines in the HUD (visualization only).
     left_ring: List[Tuple[int, int]] = field(default_factory=list)
     right_ring: List[Tuple[int, int]] = field(default_factory=list)
     # Iris circles (cx, cy, radius) in pixels, for drawing.
     iris_left: Tuple[int, int, int] | None = None
     iris_right: Tuple[int, int, int] | None = None
-
-
-def _lid_gap(pts: np.ndarray) -> float:
-    """Average vertical eyelid distance (pixels) from the 6 eyelid points."""
-    _, p2, p3, _, p5, p6 = pts
-    return float((np.linalg.norm(p2 - p6) + np.linalg.norm(p3 - p5)) / 2.0)
 
 
 def _iris_center_radius(pts5: np.ndarray) -> tuple[np.ndarray, float]:
@@ -59,8 +62,40 @@ def _iris_center_radius(pts5: np.ndarray) -> tuple[np.ndarray, float]:
     return center, radius
 
 
+def _ring_pixels(gray: np.ndarray, cx: float, cy: float,
+                 r_in: float, r_out: float) -> np.ndarray:
+    """Grayscale pixels in the annulus r_in..r_out around (cx, cy)."""
+    h, w = gray.shape
+    ro = max(1, int(np.ceil(r_out)))
+    x0, x1 = max(0, int(cx) - ro), min(w, int(cx) + ro + 1)
+    y0, y1 = max(0, int(cy) - ro), min(h, int(cy) + ro + 1)
+    if x1 <= x0 or y1 <= y0:
+        return np.empty(0, dtype=np.float32)
+    ys, xs = np.mgrid[y0:y1, x0:x1]
+    d2 = (xs - cx) ** 2 + (ys - cy) ** 2
+    m = (d2 >= r_in * r_in) & (d2 <= r_out * r_out)
+    return gray[y0:y1, x0:x1][m]
+
+
+def _iris_visibility(gray: np.ndarray, cx: float, cy: float, rad: float) -> float:
+    """How clearly the iris is visible at (cx, cy). High == open, low == closed.
+
+    Combines (a) how much darker the iris/pupil center is than the surrounding
+    ring, and (b) the local contrast in the iris disk. Both are near zero over
+    smooth eyelid skin (a closed eye) and large over a visible iris.
+    """
+    center = _ring_pixels(gray, cx, cy, 0.0, max(2.0, 0.6 * rad))
+    surround = _ring_pixels(gray, cx, cy, 1.5 * rad, 2.8 * rad)
+    disk = _ring_pixels(gray, cx, cy, 0.0, max(2.0, 1.0 * rad))
+    if center.size == 0 or surround.size == 0 or disk.size == 0:
+        return 0.0
+    darkness = max(0.0, float(np.median(surround) - center.mean())) / 255.0
+    contrast = float(disk.std()) / 255.0
+    return darkness + contrast
+
+
 class EyeTracker:
-    """Wrapper around MediaPipe Tasks FaceLandmarker focused on blink detection."""
+    """FaceLandmarker-based iris-visibility blink detector."""
 
     def __init__(self) -> None:
         if not config.MODEL_PATH.exists():
@@ -88,13 +123,12 @@ class EyeTracker:
         return float(np.median(hist)) if hist else 0.0
 
     def process(self, frame_rgb: np.ndarray, timestamp_ms: float) -> EyeReading:
-        """Run FaceLandmarker on an RGB frame and return smoothed openness.
+        """Run FaceLandmarker and return smoothed per-eye iris visibility.
 
         ``timestamp_ms`` must be monotonically increasing (VIDEO running mode).
         """
         h, w = frame_rgb.shape[:2]
 
-        # FaceLandmarker VIDEO mode needs strictly increasing integer timestamps.
         ts = int(timestamp_ms)
         if ts <= self._last_ts:
             ts = self._last_ts + 1
@@ -109,40 +143,33 @@ class EyeTracker:
 
         lm = result.face_landmarks[0]
         if len(lm) < 478:
-            # The refined mesh (with iris) is required for this app.
             raise SystemExit(
                 "FaceLandmarker did not return iris landmarks (need 478 points). "
                 "Re-download the model with:  python download_model.py"
             )
 
+        gray = frame_rgb.astype(np.float32) @ _LUMA
+
         def pts_for(indices) -> np.ndarray:
             return np.array([[lm[i].x * w, lm[i].y * h] for i in indices],
                             dtype=np.float32)
 
-        left_pts = pts_for(config.LEFT_EYE_LIDS)
-        right_pts = pts_for(config.RIGHT_EYE_LIDS)
-
-        # Iris-normalized openness: eyelid_gap / iris_diameter.
         cA, rA = _iris_center_radius(pts_for(config.IRIS_GROUP_A))
         cB, rB = _iris_center_radius(pts_for(config.IRIS_GROUP_B))
 
-        left_centroid = left_pts.mean(axis=0)
-
-        # Match each iris group to the nearest eye (ignore MP's labels).
-        if (np.linalg.norm(left_centroid - cA)
-                <= np.linalg.norm(left_centroid - cB)):
+        # Assign iris groups to eyes by horizontal position (iris-only, no
+        # eyelid landmarks). In a mirrored (selfie) frame the anatomical LEFT
+        # eye appears on the image's right (larger x).
+        if (cA[0] > cB[0]) == config.FLIP_HORIZONTAL:
             (lc, lr), (rc, rr) = (cA, rA), (cB, rB)
         else:
             (lc, lr), (rc, rr) = (cB, rB), (cA, rA)
 
-        diam_l = max(2.0 * lr, 1e-6)
-        diam_r = max(2.0 * rr, 1e-6)
-        raw_left = _lid_gap(left_pts) / diam_l
-        raw_right = _lid_gap(right_pts) / diam_r
+        raw_left = _iris_visibility(gray, lc[0], lc[1], lr)
+        raw_right = _iris_visibility(gray, rc[0], rc[1], rr)
 
         self._left_hist.append(raw_left)
         self._right_hist.append(raw_right)
-
         sm_left = self._median(self._left_hist)
         sm_right = self._median(self._right_hist)
 

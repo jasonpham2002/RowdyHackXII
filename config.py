@@ -5,9 +5,9 @@ demo without hunting through the code. A small ``RuntimeConfig`` dataclass holds
 the values that calibration overwrites at runtime (and that can be persisted to
 ``calibration.json``).
 
-Eye openness is measured with the IRIS method: ``eyelid_gap / iris_diameter``.
-The iris is a near-constant physical size, so this is robust to eye SHAPE and to
-viewing distance.
+Eye open/closed is decided purely by IRIS VISIBILITY: we look at the image
+pixels where the iris should be and measure how clearly the iris/pupil is there
+(dark center + local contrast). Eye shape is never used for detection.
 """
 
 from __future__ import annotations
@@ -26,17 +26,9 @@ FRAME_HEIGHT = 720
 FLIP_HORIZONTAL = True      # mirror the frame so it feels like a selfie view
 
 # --------------------------------------------------------------------------- #
-# MediaPipe FaceLandmarker eyelid landmark indices used for the eyelid gap.
-# Order: (p1, p2, p3, p4, p5, p6) where p1/p4 are the eye corners (horizontal)
-# and the rest are top/bottom lids. The vertical gap is the average of
-# |p2-p6| and |p3-p5|.
+# Eye contour landmarks. These are used ONLY to draw an outline in the HUD and
+# to locate the eye close-up inset. Detection does NOT use eye shape at all.
 # --------------------------------------------------------------------------- #
-# Anatomical RIGHT eye (appears on the LEFT of a mirrored frame).
-RIGHT_EYE_LIDS = (33, 160, 158, 133, 153, 144)
-# Anatomical LEFT eye (appears on the RIGHT of a mirrored frame).
-LEFT_EYE_LIDS = (362, 385, 387, 263, 373, 380)
-
-# Fuller contours (just for drawing a nice outline around each eye in the HUD).
 RIGHT_EYE_RING = (33, 7, 163, 144, 145, 153, 154, 155, 133,
                   173, 157, 158, 159, 160, 161, 246)
 LEFT_EYE_RING = (362, 382, 381, 380, 374, 373, 390, 249, 263,
@@ -67,10 +59,10 @@ BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a 
 
 # --------------------------------------------------------------------------- #
 # Calibration defaults (overwritten after running calibration).
-# openness = eyelid_gap / iris_diameter  (dimensionless).
+# openness = iris visibility (darkness + local contrast), ~0.5 open / ~0.05 closed.
 # --------------------------------------------------------------------------- #
-DEFAULT_CLOSE_THRESH = 0.33     # openness below this == eye considered closed
-DEFAULT_MIN_OPEN_DROP = 0.08    # min open->closed drop for calibration to trust itself
+DEFAULT_CLOSE_THRESH = 0.25     # iris visibility below this == eye considered closed
+DEFAULT_MIN_OPEN_DROP = 0.10    # min open->closed drop for calibration to trust itself
 CLOSE_RATIO = 0.6               # close_thresh sits 60% of the way from open mean toward closed
 CALIB_OPEN_SECONDS = 4.0
 CALIB_CLOSED_SECONDS = 2.5
@@ -105,8 +97,8 @@ class RuntimeConfig:
 
     close_thresh: float = DEFAULT_CLOSE_THRESH          # combined (for HUD/display)
     min_open_drop: float = DEFAULT_MIN_OPEN_DROP
-    open_mean: float = 0.45
-    closed_mean: float = 0.10
+    open_mean: float = 0.50
+    closed_mean: float = 0.05
     close_thresh_left: Optional[float] = None
     close_thresh_right: Optional[float] = None
 
