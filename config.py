@@ -61,9 +61,12 @@ BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a 
 # Calibration defaults (overwritten after running calibration).
 # openness = iris visibility (darkness + local contrast), ~0.5 open / ~0.05 closed.
 # --------------------------------------------------------------------------- #
-DEFAULT_CLOSE_THRESH = 0.25     # iris visibility below this == eye considered closed
+DEFAULT_CLOSE_THRESH = 0.18     # iris visibility below this == eye considered closed
 DEFAULT_MIN_OPEN_DROP = 0.10    # min open->closed drop for calibration to trust itself
-CLOSE_RATIO = 0.6               # close_thresh sits 60% of the way from open mean toward closed
+# Lower threshold == smaller margin needed to count as OPEN (easier on eyes that
+# read lower / asymmetric eyes). Higher ratio puts the line closer to the closed
+# value, leaving more "open" headroom.
+CLOSE_RATIO = 0.72              # close_thresh sits 72% of the way from open toward closed
 CALIB_OPEN_SECONDS = 4.0
 CALIB_CLOSED_SECONDS = 2.5
 CALIB_COUNTDOWN_SECONDS = 2.0
