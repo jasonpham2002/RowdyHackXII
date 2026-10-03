@@ -174,6 +174,8 @@ def main() -> None:
                         help="do not persist calibration results")
     parser.add_argument("--type", action="store_true",
                         help="type confirmed words into the focused app")
+    parser.add_argument("--no-zoom", action="store_true",
+                        help="disable zooming into the eye region for detection")
     args = parser.parse_args()
 
     cap = open_camera(args.camera)
@@ -181,7 +183,7 @@ def main() -> None:
         raise SystemExit(f"Could not open camera index {args.camera}")
 
     cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
-    tracker = EyeTracker()
+    tracker = EyeTracker(zoom=not args.no_zoom)
 
     # ---- Calibration --------------------------------------------------- #
     runtime: Optional[config.RuntimeConfig] = None
@@ -235,7 +237,7 @@ def main() -> None:
 
             hud.draw_hud(frame, reading, machine.state, runtime, engine,
                          suggestions, show_reference, typer.enabled, fps,
-                         show_eyes)
+                         show_eyes, tracker.zoom_enabled)
             cv2.imshow(WINDOW, frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -256,6 +258,9 @@ def main() -> None:
                 show_reference = not show_reference
             elif key == ord("e"):
                 show_eyes = not show_eyes
+            elif key == ord("z"):
+                on = tracker.toggle_zoom()
+                engine.flash("eye zoom ON" if on else "eye zoom OFF")
             elif key in (ord("["), ord("-")):
                 # Less sensitive to closing: eyes stay "open" at smaller openings.
                 runtime.nudge(-0.01)

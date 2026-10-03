@@ -107,13 +107,18 @@ def _paste_eye_inset(frame, inset) -> None:
 
 def draw_hud(frame, reading, machine_state, runtime, engine,
              suggestions: List[str], show_reference: bool,
-             typing_enabled: bool, fps: float, show_eyes: bool = True) -> None:
+             typing_enabled: bool, fps: float, show_eyes: bool = True,
+             zoom_enabled: bool = False) -> None:
     h, w = frame.shape[:2]
 
     # Capture the eye close-up from the clean frame BEFORE drawing overlays.
     eye_inset = _make_eye_inset(frame, reading) if (show_eyes and reading.found) else None
 
     if reading.found:
+        # Zoom region box (shows what the detector is cropping into).
+        if reading.roi is not None:
+            rx, ry, rw, rh = reading.roi
+            cv2.rectangle(frame, (rx, ry), (rx + rw, ry + rh), YELLOW, 1, cv2.LINE_AA)
         _draw_eyes(frame, reading, runtime)
         _draw_openness_bar(frame, reading, runtime)
     else:
@@ -154,10 +159,12 @@ def draw_hud(frame, reading, machine_state, runtime, engine,
     _text(frame, f"{fps:0.0f} FPS", (w - 120, 30), GREY, 0.6, 1)
     tstat = "TYPING:ON" if typing_enabled else "typing:off"
     _text(frame, tstat, (w - 170, 55), GREEN if typing_enabled else GREY, 0.6, 1)
+    zstat = "ZOOM:ON" if zoom_enabled else "zoom:off"
+    _text(frame, zstat, (w - 170, 80), GREEN if zoom_enabled else GREY, 0.6, 1)
 
     # ---- Help line (bottom) --------------------------------------------
     _text(frame,
-          "[q]uit [c]alibrate [r]ef [e]yes [t]ype [backspace]=del [space]=space",
+          "[q]uit [c]alib [r]ef [e]yes [z]oom [t]ype [bksp]=del [space]=space",
           (20, h - 20), GREY, 0.55, 1)
 
     if show_reference:
