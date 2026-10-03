@@ -5,9 +5,8 @@ demo without hunting through the code. A small ``RuntimeConfig`` dataclass holds
 the values that calibration overwrites at runtime (and that can be persisted to
 ``calibration.json``).
 
-Eye open/closed is decided purely by IRIS VISIBILITY: we look at the image
-pixels where the iris should be and measure how clearly the iris/pupil is there
-(dark center + local contrast). Eye shape is never used for detection.
+Eye open/closed is decided by the Eye Aspect Ratio (EAR) from the eyelid
+landmarks. No iris information is used.
 """
 
 from __future__ import annotations
@@ -26,24 +25,23 @@ FRAME_HEIGHT = 720
 FLIP_HORIZONTAL = True      # mirror the frame so it feels like a selfie view
 
 # --------------------------------------------------------------------------- #
-# Eye contour landmarks. These are used ONLY to draw an outline in the HUD and
-# to locate the eye close-up inset. Detection does NOT use eye shape at all.
+# Eyelid landmark indices for the Eye Aspect Ratio.
+# Order: (p1, p2, p3, p4, p5, p6) where p1/p4 are the eye corners (horizontal)
+# and the rest are top/bottom lids: EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|).
 # --------------------------------------------------------------------------- #
+# Anatomical RIGHT eye (appears on the LEFT of a mirrored frame).
+RIGHT_EYE_LIDS = (33, 160, 158, 133, 153, 144)
+# Anatomical LEFT eye (appears on the RIGHT of a mirrored frame).
+LEFT_EYE_LIDS = (362, 385, 387, 263, 373, 380)
+
+# Fuller contours (just for drawing a nice outline around each eye in the HUD).
 RIGHT_EYE_RING = (33, 7, 163, 144, 145, 153, 154, 155, 133,
                   173, 157, 158, 159, 160, 161, 246)
 LEFT_EYE_RING = (362, 382, 381, 380, 374, 373, 390, 249, 263,
                  466, 388, 387, 386, 385, 384, 398)
 
 # --------------------------------------------------------------------------- #
-# Iris landmarks (require the 478-point refined mesh, center listed first).
-# We don't trust MediaPipe's left/right labels; each iris group is matched to
-# the nearest eye at runtime.
-# --------------------------------------------------------------------------- #
-IRIS_GROUP_A = (468, 469, 470, 471, 472)   # center, then 4 ring points
-IRIS_GROUP_B = (473, 474, 475, 476, 477)
-
-# --------------------------------------------------------------------------- #
-# Openness smoothing
+# EAR smoothing
 # --------------------------------------------------------------------------- #
 SMOOTH_WINDOW = 5           # rolling median window (frames) to kill jitter
 
@@ -59,10 +57,10 @@ BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a 
 
 # --------------------------------------------------------------------------- #
 # Calibration defaults (overwritten after running calibration).
-# openness = iris visibility (darkness + local contrast), ~0.5 open / ~0.05 closed.
+# EAR is roughly ~0.3 open / ~0.08 closed (varies a lot with eye shape).
 # --------------------------------------------------------------------------- #
-DEFAULT_CLOSE_THRESH = 0.18     # iris visibility below this == eye considered closed
-DEFAULT_MIN_OPEN_DROP = 0.10    # min open->closed drop for calibration to trust itself
+DEFAULT_CLOSE_THRESH = 0.18     # EAR below this == eye considered closed
+DEFAULT_MIN_OPEN_DROP = 0.06    # min open->closed EAR drop for calibration to trust itself
 # Lower threshold == smaller margin needed to count as OPEN (easier on eyes that
 # read lower / asymmetric eyes). Higher ratio puts the line closer to the closed
 # value, leaving more "open" headroom.
@@ -100,8 +98,8 @@ class RuntimeConfig:
 
     close_thresh: float = DEFAULT_CLOSE_THRESH          # combined (for HUD/display)
     min_open_drop: float = DEFAULT_MIN_OPEN_DROP
-    open_mean: float = 0.50
-    closed_mean: float = 0.05
+    open_mean: float = 0.30
+    closed_mean: float = 0.08
     close_thresh_left: Optional[float] = None
     close_thresh_right: Optional[float] = None
 

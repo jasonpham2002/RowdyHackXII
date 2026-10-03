@@ -1,8 +1,8 @@
 """Interactive calibration.
 
-Captures the user's open-eye and closed-eye iris-openness distributions for a
-few seconds each, then derives an adaptive per-eye ``close_thresh``. This is what
-makes the detector robust across people, eye shapes and lighting.
+Captures the user's open-eye and closed-eye EAR distributions for a few seconds
+each, then derives an adaptive per-eye ``close_thresh``. This is what makes the
+detector robust across people and lighting.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Hands-free eye-blink Morse code decoder.
 
 Pipeline:
-    camera -> FaceLandmarker (iris openness) -> blink/wink state machine
+    camera -> FaceLandmarker (eye aspect ratio) -> blink/wink state machine
     -> Morse decode
     -> text buffer + word prediction -> HUD (and optional OS typing).
 
