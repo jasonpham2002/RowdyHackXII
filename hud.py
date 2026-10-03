@@ -62,10 +62,53 @@ def _symbols_pretty(symbols: str) -> str:
     return "".join("DOT " if c == "." else "DASH " for c in symbols).strip()
 
 
+def _make_eye_inset(frame, reading, pad_ratio=0.6, target_w=300, max_h=150):
+    """Return a zoomed-in crop around both eyes (from the clean frame)."""
+    pts = list(reading.left_ring) + list(reading.right_ring)
+    if not pts:
+        return None
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    x1, x2 = min(xs), max(xs)
+    y1, y2 = min(ys), max(ys)
+    bw, bh = x2 - x1, y2 - y1
+    if bw <= 0 or bh <= 0:
+        return None
+    px = int(bw * pad_ratio)
+    py = int(bh * (pad_ratio + 0.6))
+    h, w = frame.shape[:2]
+    x1 = max(0, x1 - px)
+    y1 = max(0, y1 - py)
+    x2 = min(w, x2 + px)
+    y2 = min(h, y2 + py)
+    crop = frame[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+    scale = target_w / crop.shape[1]
+    new_h = min(max_h, int(crop.shape[0] * scale))
+    return cv2.resize(crop, (target_w, max(1, new_h)), interpolation=cv2.INTER_LINEAR)
+
+
+def _paste_eye_inset(frame, inset) -> None:
+    h, w = frame.shape[:2]
+    ih, iw = inset.shape[:2]
+    x0 = w - iw - 20
+    y0 = h - ih - 55
+    if x0 < 0 or y0 < 0:
+        return
+    # Border + label.
+    cv2.rectangle(frame, (x0 - 2, y0 - 2), (x0 + iw + 2, y0 + ih + 2), CYAN, 2)
+    frame[y0:y0 + ih, x0:x0 + iw] = inset
+    _text(frame, "eyes", (x0 + 4, y0 + 18), CYAN, 0.5, 1)
+
+
 def draw_hud(frame, reading, machine_state, runtime, engine,
              suggestions: List[str], show_reference: bool,
-             typing_enabled: bool, fps: float) -> None:
+             typing_enabled: bool, fps: float, show_eyes: bool = True) -> None:
     h, w = frame.shape[:2]
+
+    # Capture the eye close-up from the clean frame BEFORE drawing overlays.
+    eye_inset = _make_eye_inset(frame, reading) if (show_eyes and reading.found) else None
 
     if reading.found:
         _draw_eyes(frame, reading, runtime)
@@ -111,11 +154,14 @@ def draw_hud(frame, reading, machine_state, runtime, engine,
 
     # ---- Help line (bottom) --------------------------------------------
     _text(frame,
-          "[q]uit  [c]alibrate  [r]ef  [t]ype  [backspace]=del  [space]=space",
+          "[q]uit [c]alibrate [r]ef [e]yes [t]ype [backspace]=del [space]=space",
           (20, h - 20), GREY, 0.55, 1)
 
     if show_reference:
         _draw_reference(frame)
+
+    if eye_inset is not None:
+        _paste_eye_inset(frame, eye_inset)
 
 
 def _draw_reference(frame) -> None:

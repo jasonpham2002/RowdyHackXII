@@ -203,6 +203,7 @@ def main() -> None:
     engine = TextEngine(predictor, typer)
 
     show_reference = False
+    show_eyes = True
     fps = 0.0
     last = time.perf_counter()
 
@@ -232,7 +233,8 @@ def main() -> None:
                 fps = 0.9 * fps + 0.1 * (1.0 / dt)
 
             hud.draw_hud(frame, reading, machine.state, runtime, engine,
-                         suggestions, show_reference, typer.enabled, fps)
+                         suggestions, show_reference, typer.enabled, fps,
+                         show_eyes)
             cv2.imshow(WINDOW, frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -249,6 +251,8 @@ def main() -> None:
                         runtime.save()
             elif key == ord("r"):
                 show_reference = not show_reference
+            elif key == ord("e"):
+                show_eyes = not show_eyes
             elif key == ord("t"):
                 state = typer.toggle()
                 if not typer.available:
