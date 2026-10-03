@@ -76,10 +76,9 @@ class BlinkStateMachine:
         """Feed one frame. ``now_ms`` is a monotonic timestamp in milliseconds."""
         events: List[Event] = []
 
-        thr = self.runtime.close_thresh
         if reading.found:
-            left_closed = reading.ear_left < thr
-            right_closed = reading.ear_right < thr
+            left_closed = reading.ear_left < self.runtime.close_thresh_left
+            right_closed = reading.ear_right < self.runtime.close_thresh_right
         else:
             # No face: treat as "eyes open" so we don't accumulate a closure.
             left_closed = right_closed = False

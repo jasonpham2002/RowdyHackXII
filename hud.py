@@ -34,8 +34,8 @@ def _panel(frame, x1, y1, x2, y2, alpha=0.55):
 
 
 def _draw_eyes(frame, reading, runtime):
-    for ring, closed in ((reading.left_ring, reading.ear_left < runtime.close_thresh),
-                         (reading.right_ring, reading.ear_right < runtime.close_thresh)):
+    for ring, closed in ((reading.left_ring, reading.ear_left < runtime.close_thresh_left),
+                         (reading.right_ring, reading.ear_right < runtime.close_thresh_right)):
         if not ring:
             continue
         pts = np.array(ring, dtype=np.int32)
@@ -56,6 +56,8 @@ def _draw_ear_bar(frame, reading, runtime):
     tx = x + int(w * min(runtime.close_thresh, max_ear) / max_ear)
     cv2.line(frame, (tx, y - 4), (tx, y + h + 4), YELLOW, 2)
     _text(frame, f"{reading.ear_avg:0.3f}", (x + w + 12, y + h - 3), WHITE, 0.6, 1)
+    _text(frame, f"thr {runtime.close_thresh:0.3f}  [ ]=sensitivity",
+          (x, y - 28), YELLOW, 0.55, 1)
 
 
 def _symbols_pretty(symbols: str) -> str:

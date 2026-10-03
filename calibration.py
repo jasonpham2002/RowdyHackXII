@@ -50,6 +50,10 @@ def run_calibration(cap, tracker: EyeTracker,
 
     open_samples: List[float] = []
     closed_samples: List[float] = []
+    open_l: List[float] = []
+    open_r: List[float] = []
+    closed_l: List[float] = []
+    closed_r: List[float] = []
 
     for name, duration, message, color in phases:
         start = time.perf_counter()
@@ -65,8 +69,12 @@ def run_calibration(cap, tracker: EyeTracker,
 
             if name == "open" and reading.found:
                 open_samples.append(reading.ear_avg)
+                open_l.append(reading.ear_left)
+                open_r.append(reading.ear_right)
             elif name == "closed" and reading.found:
                 closed_samples.append(reading.ear_avg)
+                closed_l.append(reading.ear_left)
+                closed_r.append(reading.ear_right)
 
             _put(frame, "CALIBRATION", 60, (255, 255, 0), 1.2, 3)
             _put(frame, message, 110, color)
@@ -90,23 +98,33 @@ def run_calibration(cap, tracker: EyeTracker,
         # Not enough data; fall back to defaults.
         return None
 
-    open_arr = np.array(open_samples)
-    closed_arr = np.array(closed_samples)
-    open_mean = float(np.median(open_arr))
-    open_std = float(np.std(open_arr))
-    closed_mean = float(np.median(closed_arr))
+    def compute_thresh(open_vals, closed_vals):
+        """Adaptive close threshold for one eye (works for any eye size)."""
+        o_arr = np.array(open_vals)
+        c_arr = np.array(closed_vals)
+        o_mean = float(np.median(o_arr))
+        o_std = float(np.std(o_arr))
+        c_mean = float(np.median(c_arr))
+        # 60% of the way from open toward closed.
+        t = o_mean - config.CLOSE_RATIO * (o_mean - c_mean)
+        # Keep normal open-eye jitter above the line...
+        t = min(t, o_mean - 3.0 * o_std)
+        # ...but never dip to/below the measured closed level.
+        t = max(t, c_mean + 0.01)
+        return t, o_mean, c_mean
 
-    # Primary threshold: 60% of the way from open toward closed.
-    close_thresh = open_mean - config.CLOSE_RATIO * (open_mean - closed_mean)
-    # Never let normal open-eye jitter cross the threshold.
-    close_thresh = min(close_thresh, open_mean - 3.0 * open_std)
-    # Never dip at or below the measured closed level.
-    close_thresh = max(close_thresh, closed_mean + 0.01)
+    t_left, ol_mean, cl_mean = compute_thresh(open_l, closed_l)
+    t_right, orr_mean, cr_mean = compute_thresh(open_r, closed_r)
+    open_mean = (ol_mean + orr_mean) / 2.0
+    closed_mean = (cl_mean + cr_mean) / 2.0
+    close_thresh = (t_left + t_right) / 2.0
 
     rc = config.RuntimeConfig(
         close_thresh=round(close_thresh, 4),
         min_ear_drop=round(max(open_mean - closed_mean, config.DEFAULT_MIN_EAR_DROP), 4),
         open_mean=round(open_mean, 4),
         closed_mean=round(closed_mean, 4),
+        close_thresh_left=round(t_left, 4),
+        close_thresh_right=round(t_right, 4),
     )
     return rc

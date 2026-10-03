@@ -247,12 +247,25 @@ def main() -> None:
                     runtime.min_ear_drop = new_rc.min_ear_drop
                     runtime.open_mean = new_rc.open_mean
                     runtime.closed_mean = new_rc.closed_mean
+                    runtime.close_thresh_left = new_rc.close_thresh_left
+                    runtime.close_thresh_right = new_rc.close_thresh_right
                     if not args.no_save:
                         runtime.save()
             elif key == ord("r"):
                 show_reference = not show_reference
             elif key == ord("e"):
                 show_eyes = not show_eyes
+            elif key in (ord("["), ord("-")):
+                # Less sensitive to closing: eyes stay "open" at smaller openings.
+                runtime.nudge(-0.01)
+                engine.flash(f"thr {runtime.close_thresh:0.3f}")
+                if not args.no_save:
+                    runtime.save()
+            elif key in (ord("]"), ord("=")):
+                runtime.nudge(+0.01)
+                engine.flash(f"thr {runtime.close_thresh:0.3f}")
+                if not args.no_save:
+                    runtime.save()
             elif key == ord("t"):
                 state = typer.toggle()
                 if not typer.available:

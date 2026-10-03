@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Optional
 
 # --------------------------------------------------------------------------- #
 # Camera
@@ -83,12 +84,33 @@ MODEL_URL = (
 
 @dataclass
 class RuntimeConfig:
-    """Values that calibration tunes per-user / per-lighting at runtime."""
+    """Values that calibration tunes per-user / per-lighting at runtime.
 
-    close_thresh: float = DEFAULT_CLOSE_THRESH
+    Per-eye thresholds (``close_thresh_left`` / ``close_thresh_right``) make the
+    detector work for small or asymmetric eyes: each eye is judged against its
+    own open/closed range instead of one global cutoff.
+    """
+
+    close_thresh: float = DEFAULT_CLOSE_THRESH          # combined (for HUD/display)
     min_ear_drop: float = DEFAULT_MIN_EAR_DROP
     open_mean: float = 0.30
     closed_mean: float = 0.10
+    close_thresh_left: Optional[float] = None
+    close_thresh_right: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if self.close_thresh_left is None:
+            self.close_thresh_left = self.close_thresh
+        if self.close_thresh_right is None:
+            self.close_thresh_right = self.close_thresh
+
+    def nudge(self, delta: float) -> None:
+        """Shift all thresholds (live sensitivity tuning). Lower == eyes stay
+        'open' at smaller openings (fixes "I must open too wide")."""
+        lo, hi = 0.04, 0.45
+        self.close_thresh = min(hi, max(lo, self.close_thresh + delta))
+        self.close_thresh_left = min(hi, max(lo, (self.close_thresh_left or 0) + delta))
+        self.close_thresh_right = min(hi, max(lo, (self.close_thresh_right or 0) + delta))
 
     def save(self, path: Path = CALIBRATION_FILE) -> None:
         path.write_text(json.dumps(asdict(self), indent=2))
