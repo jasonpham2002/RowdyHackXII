@@ -20,6 +20,26 @@ YELLOW = (0, 230, 230)
 CYAN = (230, 230, 0)
 GREY = (170, 170, 170)
 PANEL = (25, 25, 25)
+BUTTON = (40, 90, 160)
+BUTTON_ALT = (90, 70, 30)
+
+# Click targets filled by draw_hud. Each item is (name, x1, y1, x2, y2).
+buttons: list = []
+frame_size = (1280, 720)
+
+
+def hit_button(x: int, y: int) -> str:
+    for name, x1, y1, x2, y2 in buttons:
+        if x1 <= x <= x2 and y1 <= y <= y2:
+            return name
+    return ""
+
+
+def _button(frame, name, x, y, w, h, label, fill) -> None:
+    cv2.rectangle(frame, (x, y), (x + w, y + h), fill, -1)
+    cv2.rectangle(frame, (x, y), (x + w, y + h), WHITE, 2)
+    _text(frame, label, (x + 18, y + h // 2 + 10), WHITE, 0.85, 2)
+    buttons.append((name, x, y, x + w, y + h))
 
 
 def _text(frame, s, org, color=WHITE, scale=0.7, thick=2):
@@ -578,9 +598,22 @@ def draw_hud(
     fps: float,
     show_eyes: bool = True,
     zoom_enabled: bool = False,
+    mode: str = "assist",
+    alert_title: str = "",
+    alert_detail: str = "",
+    pending_pattern: str = "",
 ) -> None:
 
     h, w = frame.shape[:2]
+    global frame_size
+    frame_size = (w, h)
+    buttons.clear()
+
+    if alert_title:
+        _panel(frame, 40, h // 2 - 110, w - 40, h // 2 + 110, alpha=0.88)
+        _text(frame, alert_title, (70, h // 2 - 20), RED, 1.7, 4)
+        detail = alert_detail or "SIMULATED — not a real 911 call"
+        _text(frame, detail[:70], (70, h // 2 + 40), YELLOW, 0.95, 2)
 
     # Capture eye crop before drawing overlays.
     eye_inset = (
@@ -647,7 +680,7 @@ def draw_hud(
             "No face detected",
             (
                 30,
-                h - 55,
+                h - 140,
             ),
             RED,
             0.8,
@@ -663,7 +696,8 @@ def draw_hud(
         0,
         0,
         w,
-        170,
+        200,
+        alpha=0.72,
     )
 
     cur = (
@@ -684,57 +718,33 @@ def draw_hud(
         )
     )
 
-    _text(
-        frame,
-        (
-            f"Morse: "
-            f"{_symbols_pretty(cur) or '---'}"
-            f"  -> {live_str}"
-        ),
-        (
-            20,
-            40,
-        ),
-        CYAN,
-        0.9,
-        2,
-    )
+    if mode == "assist":
+        blinks = pending_pattern or "waiting"
+        _text(frame, "ASSIST", (20, 48), GREEN, 1.15, 3)
+        _text(frame, "Blinks: " + blinks, (20, 100), WHITE, 1.15, 3)
+        _text(
+            frame,
+            "1 second after you stop, only the longest match, for 5 seconds",
+            (20, 148),
+            YELLOW,
+            0.7,
+            2,
+        )
+    else:
+        _text(
+            frame,
+            f"Morse: {_symbols_pretty(cur) or '---'}  -> {live_str}",
+            (20, 48),
+            CYAN,
+            1.05,
+            2,
+        )
+        typed = engine.display_text()
+        max_chars = max(10, (w - 40) // 22)
+        shown = typed[-max_chars:]
+        _text(frame, "Text: " + (shown or "_"), (20, 100), WHITE, 1.05, 2)
 
-    typed = (
-        engine.display_text()
-    )
-
-    max_chars = max(
-        10,
-        (
-            w - 40
-        ) // 18,
-    )
-
-    shown = typed[
-        -max_chars:
-    ]
-
-    _text(
-        frame,
-        (
-            "Text: "
-            + (
-                shown
-                if shown
-                else "_"
-            )
-        ),
-        (
-            20,
-            85,
-        ),
-        WHITE,
-        0.9,
-        2,
-    )
-
-    if suggestions:
+    if mode != "assist" and suggestions:
 
         sug = "   ".join(
             f"{i + 1}.{s}"
@@ -747,12 +757,9 @@ def draw_hud(
         _text(
             frame,
             "Suggest: " + sug,
-            (
-                20,
-                125,
-            ),
+            (20, 150),
             GREEN,
-            0.75,
+            0.85,
             2,
         )
 
@@ -765,13 +772,10 @@ def draw_hud(
         _text(
             frame,
             hint,
-            (
-                20,
-                155,
-            ),
-            GREY,
-            0.55,
-            1,
+            (20, 185),
+            YELLOW,
+            0.7,
+            2,
         )
 
     # -------------------------------------------------------------
@@ -834,6 +838,16 @@ def draw_hud(
         1,
     )
 
+    mode_label = "ASSIST" if mode == "assist" else "MORSE"
+    _text(
+        frame,
+        mode_label,
+        (w - 220, 115),
+        GREEN if mode == "assist" else CYAN,
+        0.95,
+        2,
+    )
+
     zstat = (
         "ZOOM:ON"
         if zoom_enabled
@@ -860,20 +874,17 @@ def draw_hud(
     # Controls
     # -------------------------------------------------------------
 
+    _panel(frame, 0, h - 96, w, h, alpha=0.78)
+    _button(frame, "customize", 16, h - 78, 250, 58, "Customize", BUTTON)
+    mode_btn = "Switch to Morse" if mode == "assist" else "Switch to Assist"
+    _button(frame, "mode", 282, h - 78, 280, 58, mode_btn, BUTTON_ALT)
     _text(
         frame,
-        (
-            "[q]uit [c]alib [r]ef "
-            "[e]yes [z]oom [t]ype "
-            "[bksp]=del [space]=space"
-        ),
-        (
-            20,
-            h - 20,
-        ),
-        GREY,
-        0.55,
-        1,
+        "q quit   o customize   c calibrate",
+        (590, h - 40),
+        WHITE,
+        0.7,
+        2,
     )
 
     if show_reference:

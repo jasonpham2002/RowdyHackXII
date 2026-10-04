@@ -29,9 +29,10 @@ Eye zoom is on by default: after the first frame, detection crops and upscales t
 | Eyes open ~0.7 s | End the current letter |
 | Eyes open ~2 s | End the word (insert a space) |
 | Left wink (> 300 ms) | Backspace |
-| Right wink once | Accept word suggestion #1 |
-| Right wink twice | Accept word suggestion #2 |
-| Right wink 3 times | Accept word suggestion #3 |
+| Right wink once (Morse mode) | Accept word suggestion #1 |
+| Right wink twice (Morse mode) | Accept word suggestion #2 |
+| Right wink 3 times (Morse mode) | Accept word suggestion #3 |
+| `m` key | Toggle Assist mode and Morse mode |
 
 Blinks shorter than ~40 ms are ignored (camera noise). A close of 40–250 ms is a dot. Anything held past 250 ms is a dash.
 
@@ -68,7 +69,11 @@ From the project folder, with the virtual environment activated:
 python main.py
 ```
 
-That opens the camera, walks you through calibration, then starts decoding.
+That opens the camera, walks you through calibration, then starts in **Assist mode**.
+
+Assist mode watches for custom blink shortcuts. The default shortcut is three fast dots (`...`, each gap under 400 ms), which raises a **simulated SOS** alert and writes a line to `dispatch_log.txt`. It does not call or text 911. Press `m` to switch to Morse mode for covert letter-by-letter typing.
+
+While the camera is running, click **Customize** on the camera window (or press `o`) to open the shortcut page at [http://127.0.0.1:8765](http://127.0.0.1:8765). You can type a pattern or record the next blinks from the camera. Assist waits one second after the last blink, shows only the longest matching shortcut, and clears that message after five seconds.
 
 Other ways to start:
 

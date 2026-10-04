@@ -53,7 +53,17 @@ DOT_MAX_MS = 250            # 40..250 ms (both eyes) -> DOT, longer -> DASH
 LETTER_GAP_MS = 700         # eyes open this long -> commit the current letter
 WORD_GAP_MS = 2000          # eyes open this long -> commit letter + insert space
 WINK_MIN_MS = 300           # a single eye must stay closed this long to count as a wink
-RIGHT_SELECT_GAP_MS = 800   # pause after the last right wink before that suggestion is chosen
+RIGHT_PICK_MAX_MS = 1000    # a right blink longer than this does not count toward a suggestion
+RIGHT_SELECT_GAP_MS = 3000  # pause after the last right blink before that suggestion is chosen
+
+# Shortcut matching (Assist mode). SOS is three fast dots, not the letter S.
+SOS_MAX_GAP_MS = 400        # max time between blinks inside a fast shortcut
+SOS_MAX_SPAN_MS = 1500      # whole three-dot gesture must finish inside this
+SHORTCUT_HOLD_MS = 1000     # wait after the last blink so a longer pattern can win
+ASSIST_SHOW_S = 5.0         # how long an assist message stays on screen
+WORKSPACE_PORT = 8765
+SHORTCUTS_FILE = Path(__file__).with_name("shortcuts.json")
+DISPATCH_LOG = Path(__file__).with_name("dispatch_log.txt")
 BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a blink
 
 # --------------------------------------------------------------------------- #

@@ -2,11 +2,15 @@
 
 Pipeline:
     camera -> FaceLandmarker (eye aspect ratio) -> blink/wink state machine
-    -> Morse decode
+    -> shortcut matcher (Assist) or Morse decode
     -> text buffer + word prediction -> HUD (and optional OS typing).
 
+Assist mode is the default. Three fast dots raise a simulated SOS alert.
+The shortcut editor opens at http://127.0.0.1:8765
+
 Run:
-    python main.py                 # calibrate, then start decoding
+    python main.py                 # calibrate, then start in Assist mode
+    python main.py --morse         # start in covert Morse mode
     python main.py --skip-calib    # reuse saved calibration (or defaults)
     python main.py --type          # also type confirmed words into focused app
 
@@ -15,13 +19,15 @@ Blink language:
     longer blink (both eyes, over 250 ms) . dash
     pause (eyes open ~0.7s) ........ end of letter
     longer pause (~2s) ............. space (end of word)
-    left wink ...................... backspace
-    right wink once ................ accept suggestion #1
+    m .............................. toggle Assist / Morse mode
+    left wink ...................... backspace (Morse mode)
+    right wink once ................ accept suggestion #1 (Morse mode)
     right wink twice ............... accept suggestion #2
     right wink 3 times ............. accept suggestion #3
 
-Keys: q quit | c recalibrate | r reference chart | t toggle typing
-      backspace delete | space insert word break
+Keys: q quit | o open customize | m mode | c recalibrate
+      r reference | t typing | backspace delete | space word break
+The Customize button on the camera window opens the shortcut page.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ import argparse
 import platform
 import threading
 import time
+import webbrowser
 from typing import List, Optional
 
 import cv2
@@ -40,8 +47,11 @@ import morse
 from calibration import run_calibration
 from predictor import WordPredictor
 from state_machine import BlinkStateMachine, Event
+from actions import ActionRunner
+from shortcuts import ShortcutMatcher
 from tracker import EyeTracker
 from typer import Typer
+from workspace import start_workspace
 
 WINDOW = "Eye Morse Decoder"
 
@@ -130,16 +140,17 @@ class TextEngine:
         """Count a right wink. 1, 2, or 3 picks suggestion #1, #2, or #3."""
         self.right_picks = min(self.right_picks + 1, config.NUM_SUGGESTIONS)
         self._right_deadline = now_ms + config.RIGHT_SELECT_GAP_MS
-        self.flash(f"pick #{self.right_picks}")
+        self.flash(f"pick #{self.right_picks}", seconds=3.2)
 
     def cancel_right_picks(self) -> None:
         self.right_picks = 0
         self._right_deadline = 0.0
 
-    def poll_right_picks(self, now_ms: float, suggestions: List[str]) -> None:
+    def poll_right_picks(self, now_ms: float) -> None:
         """Apply the counted right winks once the pause has elapsed."""
         if self.right_picks and now_ms >= self._right_deadline:
             index = self.right_picks - 1
+            suggestions = self.suggestions()
             self.cancel_right_picks()
             self.accept_suggestion(suggestions, index)
 
@@ -169,20 +180,30 @@ def open_camera(index: int) -> cv2.VideoCapture:
     return cap
 
 
-def handle_events(events, engine: TextEngine, now_ms: float) -> None:
+def handle_events(events, engine: TextEngine, now_ms: float, mode: str,
+                  matcher: ShortcutMatcher, actions: ActionRunner,
+                  blink_ms: float = 0.0) -> None:
     for ev in events:
-        if ev is Event.DOT:
-            engine.cancel_right_picks()
-            engine.add_symbol(".")
-            _beep(900)
-        elif ev is Event.DASH:
-            engine.cancel_right_picks()
-            engine.add_symbol("-")
-            _beep(600)
-        elif ev is Event.LETTER_GAP:
+        if ev is Event.DOT or ev is Event.DASH:
+            symbol = "." if ev is Event.DOT else "-"
+            _beep(900 if ev is Event.DOT else 600)
+            # A both-eyes blink while choosing must not wipe the count.
+            if mode == "morse" and engine.right_picks:
+                continue
+            if mode == "assist":
+                matcher.push(symbol, now_ms, blink_ms)
+            else:
+                engine.cancel_right_picks()
+                engine.add_symbol(symbol)
+            continue
+        if mode != "morse":
+            continue
+        if ev is Event.LETTER_GAP:
             engine.commit_letter()
         elif ev is Event.WORD_GAP:
-            engine.commit_word()
+            # The 2s word pause would clear the prefix before the 3s pick lands.
+            if not engine.right_picks:
+                engine.commit_word()
         elif ev is Event.WINK_LEFT:
             engine.cancel_right_picks()
             engine.backspace()
@@ -203,6 +224,8 @@ def main() -> None:
                         help="type confirmed words into the focused app")
     parser.add_argument("--no-zoom", action="store_true",
                         help="disable zooming into the eye region for detection")
+    parser.add_argument("--morse", action="store_true",
+                        help="start in covert Morse mode instead of Assist mode")
     args = parser.parse_args()
 
     cap = open_camera(args.camera)
@@ -231,11 +254,42 @@ def main() -> None:
     predictor = WordPredictor()
     typer = Typer(enabled=args.type)
     engine = TextEngine(predictor, typer)
+    matcher = ShortcutMatcher()
+    actions = ActionRunner()
+    start_workspace(matcher)
+    mode = "morse" if args.morse else "assist"
 
     show_reference = False
     show_eyes = True
     fps = 0.0
     last = time.perf_counter()
+
+    def toggle_mode() -> None:
+        nonlocal mode
+        mode = "morse" if mode == "assist" else "assist"
+        matcher.clear()
+        engine.symbol_buffer = ""
+        engine.cancel_right_picks()
+        engine.flash("MORSE mode" if mode == "morse" else "ASSIST mode")
+
+    def on_mouse(event, x, y, _flags, _param) -> None:
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        fw, fh = hud.frame_size
+        try:
+            x0, y0, ww, hh = cv2.getWindowImageRect(WINDOW)
+            if ww > 0 and hh > 0:
+                x = int((x - x0) * fw / ww)
+                y = int((y - y0) * fh / hh)
+        except Exception:
+            pass
+        name = hud.hit_button(x, y)
+        if name == "customize":
+            webbrowser.open(f"http://127.0.0.1:{config.WORKSPACE_PORT}")
+        elif name == "mode":
+            toggle_mode()
+
+    cv2.setMouseCallback(WINDOW, on_mouse)
 
     try:
         while True:
@@ -251,8 +305,14 @@ def main() -> None:
 
             events = machine.update(reading, now_ms)
             suggestions = engine.suggestions()
-            handle_events(events, engine, now_ms)
-            engine.poll_right_picks(now_ms, suggestions)
+            handle_events(events, engine, now_ms, mode, matcher, actions,
+                          machine.last_blink_ms)
+            if mode == "assist":
+                hit = matcher.poll(now_ms)
+                if hit is not None:
+                    actions.run(hit, matcher.demo_location)
+            if mode == "morse":
+                engine.poll_right_picks(now_ms)
             # Recompute suggestions if the buffer changed this frame.
             suggestions = engine.suggestions()
 
@@ -263,9 +323,12 @@ def main() -> None:
             if dt > 0:
                 fps = 0.9 * fps + 0.1 * (1.0 / dt)
 
+            alert = actions.active_alert() or ""
             hud.draw_hud(frame, reading, machine.state, runtime, engine,
                          suggestions, show_reference, typer.enabled, fps,
-                         show_eyes, tracker.zoom_enabled)
+                         show_eyes, tracker.zoom_enabled, mode,
+                         alert, actions.alert_detail if alert else "",
+                         matcher.pending_pattern())
             cv2.imshow(WINDOW, frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -282,6 +345,10 @@ def main() -> None:
                     runtime.close_thresh_right = new_rc.close_thresh_right
                     if not args.no_save:
                         runtime.save()
+            elif key == ord("o"):
+                webbrowser.open(f"http://127.0.0.1:{config.WORKSPACE_PORT}")
+            elif key == ord("m"):
+                toggle_mode()
             elif key == ord("r"):
                 show_reference = not show_reference
             elif key == ord("e"):

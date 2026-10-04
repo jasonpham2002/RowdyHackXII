@@ -91,12 +91,17 @@ def test_state_machine():
     assert Event.WINK_LEFT in (ev + ev2), (ev + ev2)
     print("[ok] left wink")
 
-    # Right wink -> WINK_RIGHT.
+    # Right blink (~330 ms) counts toward a suggestion. Longer than 1 s does not.
     m3 = BlinkStateMachine(rc)
     _run(m3, openv, openv, 0, 60)
-    ev, t = _run(m3, openv, closed, 100, 400)
+    ev, t = _run(m3, openv, closed, 100, 300)
     ev2, t = _run(m3, openv, openv, t, 60)
     assert Event.WINK_RIGHT in (ev + ev2), (ev + ev2)
+    m3b = BlinkStateMachine(rc)
+    _run(m3b, openv, openv, 0, 60)
+    ev, t = _run(m3b, openv, closed, 100, 1100)
+    ev2, t = _run(m3b, openv, openv, t, 60)
+    assert Event.WINK_RIGHT not in (ev + ev2), (ev + ev2)
     print("[ok] right wink")
 
     # Natural (too-short) blink is ignored.
