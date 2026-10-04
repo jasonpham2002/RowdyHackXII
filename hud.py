@@ -746,7 +746,9 @@ def draw_hud(
         )
         max_chars = max(10, (w - 40) // 18)
         shown = engine.display_text().strip()
-        _text(frame, (shown[-max_chars:] if shown else "_"), (20, 92), WHITE, 1.05, 2)
+        cleaned = engine.cleaned_preview()
+        _text(frame, "Raw: " + (shown[-max_chars:] if shown else "_"), (20, 82), GREY, 0.85, 2)
+        _text(frame, "Cleaned: " + (cleaned[-max_chars:] if cleaned else "_"), (20, 118), WHITE, 1.05, 2)
 
     if mode != "assist" and suggestions:
 

@@ -532,7 +532,8 @@ def main() -> None:
 
         engine.commit_word()
 
-        message = engine.display_text().strip()
+        raw = engine.display_text().strip()
+        message = engine.cleaned_preview()
 
         if not message:
             engine.flash("nothing to send")
