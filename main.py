@@ -21,14 +21,15 @@ Blink language:
     space key ...................... word break (no automatic space)
     m .............................. toggle Assist / Morse mode
     left wink ...................... backspace (Morse mode)
-    right wink once ................ accept suggestion #1 (Morse mode)
-    right wink twice ............... accept suggestion #2
-    right wink 3 times ............. accept suggestion #3
+    right wink once ................ keep the raw line
+    right wink twice ............... accept autocorrect, or suggestion #2
+    right wink 3 times ............. suggestion #3
 
-Keys: q quit | o open customize | m mode | Enter send cleaned
+Keys: q quit | o open customize | m mode | Enter send
       c recalibrate | r reference | t typing | backspace | space word break
-The Customize button opens the shortcut page. In Morse mode, Send confirms
-the cleaned sentence. Assist shortcuts are sent as written.
+The Customize button opens the shortcut page. Morse shows the raw line.
+Autocorrect is a right-wink choice and is not applied until you pick it.
+Send sends the line on screen. Assist shortcuts are sent as written.
 """
 
 from __future__ import annotations
@@ -56,6 +57,48 @@ from typer import Typer
 from workspace import start_workspace
 
 WINDOW = "Eye Morse Decoder"
+
+
+def _click_to_frame(x: int, y: int, frame_w: int, frame_h: int) -> tuple:
+    """Map a window click into the camera image.
+
+    The buttons are drawn on the 1280x720 frame. A resized window reports
+    clicks in the smaller client area, so those clicks miss the buttons.
+    """
+    client = _window_client_size(WINDOW)
+    if client:
+        client_w, client_h = client
+        if client_w > 0 and client_h > 0:
+            return int(x * frame_w / client_w), int(y * frame_h / client_h)
+    try:
+        x0, y0, width, height = cv2.getWindowImageRect(WINDOW)
+        if width > 0 and height > 0:
+            return int((x - x0) * frame_w / width), int((y - y0) * frame_h / height)
+    except Exception:
+        pass
+    return x, y
+
+
+def _window_client_size(title: str):
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        hwnd = ctypes.windll.user32.FindWindowW(None, title)
+        if not hwnd:
+            return None
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
+            return None
+        width = int(rect.right - rect.left)
+        height = int(rect.bottom - rect.top)
+        if width <= 0 or height <= 0:
+            return None
+        return width, height
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -146,9 +189,38 @@ class TextEngine:
         if self.text:
             self.text = self.text[:-1]
 
+    def _pending_correction(self) -> str:
+        """Cleaned sentence when it differs from the raw line. Empty otherwise."""
+        raw = self.display_text().strip()
+        if not raw:
+            return ""
+        clean = self.cleaned_preview().strip()
+        if not clean or clean.upper() == raw.upper():
+            return ""
+        return clean
+
+    def choice_options(self) -> List[tuple]:
+        """Up to 3 choices. Autocorrect is offered, never applied by itself."""
+        raw = self.display_text().strip()
+        words = self.predictor.predict(self.current_word) if raw else []
+        clean = self._pending_correction()
+        if not words and not clean:
+            return []
+        rows = [("raw", raw)]
+        if clean:
+            rows.append(("clean", clean))
+        for word in words:
+            if len(rows) >= config.NUM_SUGGESTIONS:
+                break
+            rows.append(("word", word))
+        return rows
+
     def note_right_wink(self, now_ms: float) -> None:
-        """Count a right wink. 1, 2, or 3 picks suggestion #1, #2, or #3."""
-        self.right_picks = min(self.right_picks + 1, config.NUM_SUGGESTIONS)
+        """Count a right wink. Each wink moves to the next choice."""
+        options = self.choice_options()
+        if not options:
+            return
+        self.right_picks = min(self.right_picks + 1, len(options))
         self._right_deadline = now_ms + config.RIGHT_SELECT_GAP_MS
         self.flash(f"pick #{self.right_picks}", seconds=3.2)
 
@@ -160,23 +232,32 @@ class TextEngine:
         """Apply the counted right winks once the pause has elapsed."""
         if self.right_picks and now_ms >= self._right_deadline:
             index = self.right_picks - 1
-            suggestions = self.suggestions()
+            options = self.choice_options()
             self.cancel_right_picks()
-            self.accept_suggestion(suggestions, index)
+            self.apply_choice(options, index)
 
-    def accept_suggestion(self, suggestions: List[str], index: int = 0) -> None:
-        if not suggestions or index < 0 or index >= len(suggestions):
+    def apply_choice(self, options: List[tuple], index: int) -> None:
+        if not options or index < 0 or index >= len(options):
             self.flash("no suggestion")
             return
-        word = suggestions[index]
-        self.flash(word)
-        self.text += word + " "
+        kind, label = options[index]
+        if kind == "raw":
+            self.flash(label)
+            return
+        if kind == "clean":
+            self.text = label + " "
+            self.current_word = ""
+            self.symbol_buffer = ""
+            self._clean_raw = None
+            self.flash(label)
+            return
+        self.flash(label)
+        self.text += label + " "
         self.current_word = ""
         self.symbol_buffer = ""
-        self.cancel_right_picks()
 
     def suggestions(self) -> List[str]:
-        return self.predictor.predict(self.current_word)
+        return [label for _kind, label in self.choice_options()]
 
 
 # --------------------------------------------------------------------------- #
@@ -269,14 +350,13 @@ def main() -> None:
     last = time.perf_counter()
 
     def send_cleaned() -> None:
-        """Send the cleaned sentence. The raw blink text stays a preview until then."""
+        """Send the line on screen. Autocorrect is included only if it was chosen."""
         if mode != "morse":
             engine.flash("switch to Morse to send")
             return
         engine.commit_word()
-        raw = engine.display_text().strip()
-        cleaned = clean_message(raw)
-        if not cleaned:
+        message = engine.display_text().strip()
+        if not message:
             engine.flash("nothing to send")
             return
         actions.run(Shortcut(
@@ -285,11 +365,11 @@ def main() -> None:
             max_gap_ms=0,
             max_span_ms=0,
             action="message",
-            message=cleaned,
-            destination="Cleaned Morse message",
+            message=message,
+            destination="Morse message",
         ), matcher.demo_location)
         if typer.enabled:
-            typer.type_text(cleaned + " ")
+            typer.type_text(message + " ")
         engine.text = ""
         engine.current_word = ""
         engine.symbol_buffer = ""
@@ -307,13 +387,7 @@ def main() -> None:
         if event != cv2.EVENT_LBUTTONDOWN:
             return
         fw, fh = hud.frame_size
-        try:
-            x0, y0, ww, hh = cv2.getWindowImageRect(WINDOW)
-            if ww > 0 and hh > 0:
-                x = int((x - x0) * fw / ww)
-                y = int((y - y0) * fh / hh)
-        except Exception:
-            pass
+        x, y = _click_to_frame(x, y, fw, fh)
         name = hud.hit_button(x, y)
         if name == "customize":
             webbrowser.open(f"http://127.0.0.1:{config.WORKSPACE_PORT}")
@@ -337,7 +411,6 @@ def main() -> None:
             reading = tracker.process(rgb, now_ms)
 
             events = machine.update(reading, now_ms)
-            suggestions = engine.suggestions()
             handle_events(events, engine, now_ms, mode, matcher, actions,
                           machine.last_blink_ms)
             if mode == "assist":
@@ -346,8 +419,7 @@ def main() -> None:
                     actions.run(hit, matcher.demo_location)
             if mode == "morse":
                 engine.poll_right_picks(now_ms)
-            # Recompute suggestions if the buffer changed this frame.
-            suggestions = engine.suggestions()
+            suggestions = engine.suggestions() if mode == "morse" else []
 
             # Smooth FPS estimate.
             now = time.perf_counter()

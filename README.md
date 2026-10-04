@@ -1,6 +1,6 @@
 # RowdyHackXII — Hands-Free Eye-Blink Morse Decoder
 
-A laptop webcam watches your eyes and turns blinks into two kinds of messages. **Assist mode** (the default) fires custom blink shortcuts, such as three fast dots for a simulated SOS. **Morse mode** spells letters one blink at a time, shows a cleaned sentence, and sends that sentence only after you confirm.
+A laptop webcam watches your eyes and turns blinks into two kinds of messages. **Assist mode** (the default) fires custom blink shortcuts, such as three fast dots for a simulated SOS. **Morse mode** spells letters one blink at a time and shows the raw line. A cleaned sentence is offered as a choice and is applied only after you pick it.
 
 Built for a 720p HD webcam (1280×720). Alerts are simulated. Nothing in this project calls or texts 911.
 
@@ -17,7 +17,7 @@ camera → MediaPipe FaceLandmarker → Eye Aspect Ratio (EAR)
 2. **Measure.** Each eye gets an Eye Aspect Ratio: vertical opening divided by eye width. A closed eye drops toward 0. Because it is a ratio, distance from the camera does not matter much.
 3. **Calibrate.** A short guided capture records *your* open and closed EAR for each eye and sets a personal threshold. Narrow or uneven eyes are handled separately.
 4. **Assist.** A saved pattern of dots and dashes runs an action. The app waits one second after the last blink, then shows only the longest match for five seconds. Three dots and four dots do not both fire.
-5. **Morse.** Hold length decides dot vs dash. A short pause ends a letter. A pause does not insert a space. The screen shows the raw letters and a cleaned sentence. **Send** or Enter confirms the cleaned line.
+5. **Morse.** Hold length decides dot vs dash. A short pause ends a letter. A pause does not insert a space. The screen shows the raw line. When autocorrect would change it, that cleaned line is a right-wink choice and is not applied until you pick it. Other slots are word suggestions, three choices at most. **Send** or Enter sends the line on screen.
 
 Eye zoom is on by default: after the first frame, detection crops and upscales the region around your eyes so small eyes get more pixels. A yellow box shows that region. If the zoomed crop misses your face, it falls back to the full frame.
 
@@ -30,9 +30,9 @@ Eye zoom is on by default: after the first frame, detection crops and upscales t
 | Eyes open ~0.7 s | End the current letter |
 | Space key | End the word (insert a space). A pause does not add one. |
 | Left wink (> 300 ms) | Backspace |
-| Right wink once, then a 3 s pause (Morse) | Accept word suggestion #1 |
-| Right wink twice, then a 3 s pause (Morse) | Accept word suggestion #2 |
-| Right wink 3 times, then a 3 s pause (Morse) | Accept word suggestion #3 |
+| Right wink once, then a 3 s pause (Morse) | Keep the raw line (choice #1) |
+| Right wink twice, then a 3 s pause (Morse) | Accept choice #2: the cleaned line when autocorrect is offered, otherwise the first word suggestion |
+| Right wink 3 times, then a 3 s pause (Morse) | Accept choice #3 when a third choice is listed |
 | Each suggestion wink | At most 1 second. A longer right blink does not count. |
 | `m` key, or the mode button | Toggle Assist mode and Morse mode |
 
@@ -77,14 +77,14 @@ Assist mode watches for custom blink shortcuts. The default shortcut is three fa
 
 While the camera is running, click **Customize** (or press `o`) to open the shortcut page at [http://127.0.0.1:8765](http://127.0.0.1:8765). Type a pattern or record the next blinks from the camera. A dash is a blink held past 250 ms. For several dashes, allow about 1000 ms between blinks and 5000 ms for the whole gesture.
 
-In Morse mode the top of the window shows **Raw** (the letters you blinked) and **Clean** (a spaced, spelling-corrected sentence). Click **Send** or press Enter to send the clean line. It stays on screen for five seconds, then the text clears for the next message. Assist shortcuts skip this cleanup because their message is already written.
+In Morse mode the window shows the raw line you blinked. Autocorrect is not applied on its own. When a cleaned sentence would change that line, it appears as choice #2, and the text stays raw until you pick it. Word suggestions fill the remaining slots, three choices at most. Click **Send** or press Enter to send the line on screen. A sent message stays up for five seconds, then the text clears. Assist shortcuts skip this step because their message is already written.
 
 Other ways to start:
 
 ```powershell
 python main.py --skip-calib    # reuse calibration.json, or defaults if none exists
 python main.py --morse         # start in Morse mode instead of Assist
-python main.py --type          # on Send, also type the cleaned sentence into the focused app
+python main.py --type          # on Send, also type the kept line into the focused app
 python main.py --camera 1      # use a different webcam
 python main.py --no-zoom       # detect on the full frame only
 python main.py --no-save       # do not write calibration.json
@@ -110,7 +110,7 @@ If you have an old `calibration.json` from an earlier version, delete it or pres
 | `q` or `Esc` | Quit |
 | `o` | Open the shortcut page |
 | `m` | Toggle Assist and Morse |
-| `Enter` | Send the cleaned Morse sentence |
+| `Enter` | Send the Morse line on screen |
 | `c` | Recalibrate |
 | `r` | Toggle the Morse reference chart |
 | `e` | Toggle the zoomed eye inset |
@@ -123,7 +123,7 @@ If you have an old `calibration.json` from an earlier version, delete it or pres
 
 On-screen buttons: **Customize**, **Switch to Assist / Morse**, and, in Morse mode, **Send**.
 
-In Assist mode the HUD shows the blinks collected so far. In Morse mode it shows the raw letters, the cleaned sentence, and word suggestions. An EAR bar, the threshold, and FPS stay visible in both modes.
+In Assist mode the HUD shows the blinks collected so far. In Morse mode it shows the raw line and the right-wink choices. Autocorrect stays in that list until you pick it. Above the buttons, an open/close bar reads **OPEN** in green, or **CLOSED** in red once your eyes pass the yellow line. FPS stays visible in both modes.
 
 ## Tuning
 
@@ -148,9 +148,10 @@ No camera needed:
 python test_smoke.py
 python test_shortcuts.py
 python test_cleaner.py
+python test_choices.py
 ```
 
-`test_smoke.py` checks Morse decoding, word suggestions, the blink state machine, and that the face model loads. `test_shortcuts.py` checks Assist patterns. `test_cleaner.py` checks the Morse sentence preview.
+`test_smoke.py` checks Morse decoding, word suggestions, the blink state machine, and that the face model loads. `test_shortcuts.py` checks Assist patterns. `test_cleaner.py` checks the Morse sentence cleanup. `test_choices.py` checks that autocorrect is a right-wink choice and is not applied until you pick it.
 
 ## Project layout
 
@@ -164,7 +165,8 @@ python test_cleaner.py
 | `shortcuts.json` | Saved blink shortcuts |
 | `actions.py` | Simulated SOS and message display |
 | `workspace.py` | Shortcut page at `http://127.0.0.1:8765` |
-| `cleaner.py` | Morse raw text to a cleaned sentence |
+| `cleaner.py` | Morse raw text to a cleaned sentence, offered only as a choice |
+| `test_choices.py` | Right-wink raw, autocorrect, and suggestion choices |
 | `morse.py` | Morse table |
 | `predictor.py` | Word completions (`wordfreq`) |
 | `hud.py` | On-screen overlay and buttons |
@@ -175,6 +177,6 @@ python test_cleaner.py
 ## Notes
 
 - Sit in even light, face the camera, and keep your head fairly still. Recalibrate if you move or the room lighting changes.
-- OS typing (`--type` or `t`) uses `pynput`. In Morse mode it types the cleaned sentence when you press Send, into whatever window is focused. On Windows this works out of the box; some systems need extra permissions.
-- The cleaned line uses `symspellpy`. It keeps spaces you insert with the space key and splits a run of letters that has no space. Confirm before sending, because a correction can still be the wrong word.
+- OS typing (`--type` or `t`) uses `pynput`. In Morse mode it types the line on screen when you press Send, into whatever window is focused. On Windows this works out of the box; some systems need extra permissions.
+- The cleaned line uses `symspellpy`. It keeps spaces you insert with the space key and splits a run of letters that has no space. It is shown as a right-wink choice and replaces the raw line only after you pick it. **Send** does not autocorrect on its own.
 - Beeps on dot/dash use Windows `winsound` and are skipped on other platforms.

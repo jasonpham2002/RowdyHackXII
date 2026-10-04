@@ -125,21 +125,33 @@ def _draw_openness_bar(
     reading,
     runtime,
 ):
-    """Horizontal EAR meter with the old EAR threshold marked."""
+    """Open/close meter above the buttons, with the close line marked."""
 
-    x = 30
-    y = frame.shape[0] - 70
+    x = 500
+    y = frame.shape[0] - 168
 
-    w = 300
-    h = 22
+    w = 420
+    h = 28
 
+    closed = (
+        reading.open_avg
+        < runtime.close_thresh
+    )
     _text(
         frame,
-        "2D EAR",
-        (x, y - 8),
-        GREY,
-        0.6,
-        1,
+        "CLOSED" if closed else "OPEN",
+        (x, y - 12),
+        RED if closed else GREEN,
+        0.7,
+        2,
+    )
+    _text(
+        frame,
+        f"{reading.open_avg:0.3f}",
+        (x + 150, y - 12),
+        WHITE,
+        0.7,
+        2,
     )
 
     cv2.rectangle(
@@ -166,11 +178,6 @@ def _draw_openness_bar(
 
     fill = int(
         w * val
-    )
-
-    closed = (
-        reading.open_avg
-        < runtime.close_thresh
     )
 
     cv2.rectangle(
@@ -207,17 +214,6 @@ def _draw_openness_bar(
         2,
     )
 
-    _text(
-        frame,
-        f"{reading.open_avg:0.3f}",
-        (
-            x + w + 12,
-            y + h - 3,
-        ),
-        WHITE,
-        0.6,
-        1,
-    )
 
 
 def _symbols_pretty(
@@ -739,13 +735,9 @@ def draw_hud(
             0.85,
             2,
         )
-        typed = engine.display_text()
-        max_chars = max(10, (w - 220) // 18)
-        shown = typed[-max_chars:]
-        _text(frame, "Raw: " + (shown or "_"), (20, 78), WHITE, 0.9, 2)
-        cleaned = engine.cleaned_preview() if hasattr(engine, "cleaned_preview") else ""
-        _text(frame, "Clean: " + (cleaned[-max_chars:] or "_"), (20, 118), YELLOW, 0.9, 2)
-        _text(frame, "Enter or Send confirms the clean line", (20, 152), GREY, 0.6, 1)
+        max_chars = max(10, (w - 40) // 18)
+        shown = engine.display_text().strip()
+        _text(frame, (shown[-max_chars:] if shown else "_"), (20, 92), WHITE, 1.05, 2)
 
     if mode != "assist" and suggestions:
 
@@ -759,8 +751,8 @@ def draw_hud(
 
         _text(
             frame,
-            "Suggest: " + sug,
-            (20, 188),
+            "Choose: " + sug,
+            (20, 150),
             GREEN,
             0.75,
             2,
@@ -775,7 +767,7 @@ def draw_hud(
         _text(
             frame,
             hint,
-            (20, 216),
+            (20, 186),
             YELLOW,
             0.6,
             1,
