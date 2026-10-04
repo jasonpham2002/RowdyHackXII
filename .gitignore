@@ -6,9 +6,8 @@ __pycache__/
 venv/
 env/
 
-# Calibration output and runtime logs
+# Calibration output
 calibration.json
-dispatch_log.txt
 
 # Test assets
 portrait.jpg

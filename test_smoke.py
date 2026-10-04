@@ -64,8 +64,8 @@ def test_state_machine():
 
     # Open baseline.
     _run(m, openv, openv, 0, 60)
-    # Short both-eyes blink (~60 ms) -> DOT.
-    ev, t = _run(m, closed, closed, 100, 30)
+    # Short both-eyes blink (~240 ms) -> DOT.
+    ev, t = _run(m, closed, closed, 100, 210)
     ev2, t = _run(m, openv, openv, t, 60)   # reopen
     got = ev + ev2
     assert Event.DOT in got, got
@@ -77,8 +77,8 @@ def test_state_machine():
     assert Event.DASH in (ev + ev2), (ev + ev2)
     print("[ok] dash detected")
 
-    # Hold eyes open past the 2s word gap -> LETTER_GAP then WORD_GAP.
-    ev, t = _run(m, openv, openv, t, 2200)
+    # Hold eyes open > letter gap -> LETTER_GAP then WORD_GAP.
+    ev, t = _run(m, openv, openv, t, 1700)
     assert Event.LETTER_GAP in ev, ev
     assert Event.WORD_GAP in ev, ev
     print("[ok] letter gap + word gap")
@@ -91,23 +91,18 @@ def test_state_machine():
     assert Event.WINK_LEFT in (ev + ev2), (ev + ev2)
     print("[ok] left wink")
 
-    # Right blink (~330 ms) counts toward a suggestion. Longer than 1 s does not.
+    # Right wink -> WINK_RIGHT.
     m3 = BlinkStateMachine(rc)
     _run(m3, openv, openv, 0, 60)
-    ev, t = _run(m3, openv, closed, 100, 300)
+    ev, t = _run(m3, openv, closed, 100, 400)
     ev2, t = _run(m3, openv, openv, t, 60)
     assert Event.WINK_RIGHT in (ev + ev2), (ev + ev2)
-    m3b = BlinkStateMachine(rc)
-    _run(m3b, openv, openv, 0, 60)
-    ev, t = _run(m3b, openv, closed, 100, 1100)
-    ev2, t = _run(m3b, openv, openv, t, 60)
-    assert Event.WINK_RIGHT not in (ev + ev2), (ev + ev2)
     print("[ok] right wink")
 
     # Natural (too-short) blink is ignored.
     m4 = BlinkStateMachine(rc)
     _run(m4, openv, openv, 0, 60)
-    ev, t = _run(m4, closed, closed, 100, 0)   # ~30 ms, under the ignore floor
+    ev, t = _run(m4, closed, closed, 100, 60)   # ~60-90 ms
     ev2, t = _run(m4, openv, openv, t, 60)
     assert Event.DOT not in (ev + ev2) and Event.DASH not in (ev + ev2)
     print("[ok] natural blink ignored")

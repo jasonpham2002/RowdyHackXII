@@ -3,5 +3,3 @@ mediapipe>=0.10.9
 numpy>=1.24
 wordfreq>=3.0
 pynput>=1.7
-flask>=3.0
-symspellpy>=6.7
