@@ -8,20 +8,15 @@ Pipeline:
 Assist mode is the default. Three fast dots raise a simulated SOS alert.
 The shortcut editor opens at http://127.0.0.1:8765
 
-Trusted Text Room demo:
-    Start the room server separately:
-        python chat_server.py --host 0.0.0.0 --port 8766
-
-    Then start this app with a matching room:
-        python main.py --morse --room ROWDY1 --sender-name "Gail"
-
-    Only confirmed text is published to the room. Webcam frames, landmarks,
+Trusted Text Room:
+    python main.py opens the room page. Host a room or join another laptop
+    there. Send publishes only the confirmed line. Webcam frames, landmarks,
     blink events, calibration values, and unfinished Morse drafts stay local.
 
 Run:
     python main.py
     python main.py --morse
-    python main.py --morse --room ROWDY1 --sender-name "Gail"
+    python main.py --morse --room ROWDY1 --sender-name "Gail"  # optional overrides
     python main.py --skip-calib
     python main.py --type
 
@@ -61,7 +56,7 @@ import hud
 import morse
 from actions import ActionRunner
 from calibration import run_calibration
-from chat_client import publish_confirmed_message
+from chat_client import fetch_messages, load_session, publish_confirmed_message
 from cleaner import clean_message
 from predictor import WordPredictor
 from shortcuts import Shortcut, ShortcutMatcher
@@ -450,29 +445,51 @@ def main() -> None:
 
     parser.add_argument(
         "--room",
-        default="ROWDY1",
-        help="Trusted Text Room code for confirmed Morse messages.",
+        default=None,
+        help="Override the room code saved on the setup page.",
     )
 
     parser.add_argument(
         "--room-server",
-        default="http://127.0.0.1:8766",
-        help="Trusted Text Room server URL running on this laptop.",
+        default=None,
+        help="Override the room server saved on the setup page.",
     )
 
     parser.add_argument(
         "--sender-name",
-        default="Eye Morse",
-        help="Name shown beside confirmed room messages.",
+        default=None,
+        help="Override the name saved on the setup page.",
     )
 
     args = parser.parse_args()
 
-    room_code = "".join(
-        char
-        for char in args.room.upper()
-        if char.isalnum()
-    )[:12] or "ROWDY1"
+    def active_room() -> dict:
+        session = load_session()
+        if args.room:
+            session["room"] = "".join(
+                char for char in args.room.upper() if char.isalnum()
+            )[:12] or session["room"]
+        if args.sender_name:
+            session["name"] = args.sender_name.strip()[:40] or session["name"]
+        if args.room_server:
+            session["server_url"] = args.room_server.strip().rstrip("/")
+        return session
+
+    def start_room_server() -> None:
+        def run() -> None:
+            try:
+                from chat_server import run_server
+                run_server("0.0.0.0", config.ROOM_PORT)
+            except Exception as exc:
+                print(f"[room] server not started: {exc}")
+
+        threading.Thread(target=run, daemon=True).start()
+
+    start_room_server()
+    joined = active_room()
+    print(
+        f"[room] {joined['name']} in {joined['room']} via {joined['server_url']}"
+    )
 
     cap = open_camera(args.camera)
 
@@ -514,15 +531,14 @@ def main() -> None:
 
     mode = "morse" if args.morse else "assist"
 
-    print(
-        f"[room] confirmed Morse messages will publish to "
-        f"{args.room_server.rstrip('/')}/api/rooms/{room_code}/messages"
-    )
-
     show_reference = False
     show_eyes = True
     fps = 0.0
     last = time.perf_counter()
+    seen_room_ids: set[str] = set()
+    room_primed = False
+    last_room_poll = 0.0
+    room_label = ""
 
     def send_confirmed_message() -> None:
         """Send only text visible on screen after explicit user confirmation."""
@@ -551,15 +567,16 @@ def main() -> None:
             matcher.demo_location,
         )
 
+        joined = active_room()
         delivered, error = publish_confirmed_message(
             text=message,
-            room=room_code,
-            sender=args.sender_name,
-            server_url=args.room_server,
+            room=joined["room"],
+            sender=joined["name"],
+            server_url=joined["server_url"],
         )
 
         if delivered:
-            engine.flash(f"sent to room {room_code}", seconds=1.8)
+            engine.flash(f"sent to room {joined['room']}", seconds=1.8)
         else:
             engine.flash(f"local send only: {error}", seconds=2.8)
 
@@ -624,6 +641,10 @@ def main() -> None:
         elif name == "record":
             toggle_record()
 
+        elif name == "room":
+            webbrowser.open(f"http://127.0.0.1:{config.ROOM_PORT}/")
+            engine.flash("room page opened", seconds=2)
+
     cv2.setMouseCallback(WINDOW, on_mouse)
 
     try:
@@ -670,6 +691,23 @@ def main() -> None:
             if dt > 0:
                 fps = 0.9 * fps + 0.1 * (1.0 / dt)
 
+            if now - last_room_poll > 1.0:
+                last_room_poll = now
+                info = active_room()
+                room_label = f"Room {info['room']} · {info['name']}"
+                incoming, room_error = fetch_messages(info["room"], info["server_url"])
+                if not room_error:
+                    for item in incoming:
+                        message_id = str(item.get("id", ""))
+                        if not message_id or message_id in seen_room_ids:
+                            continue
+                        seen_room_ids.add(message_id)
+                        sender = str(item.get("sender", ""))
+                        text = str(item.get("text", "")).strip()
+                        if room_primed and sender != info["name"] and text:
+                            engine.flash(f"{sender}: {text[:80]}", seconds=5)
+                    room_primed = True
+
             alert = actions.active_alert() or ""
 
             hud.draw_hud(
@@ -690,6 +728,7 @@ def main() -> None:
                 matcher.pending_pattern(),
                 matcher.is_recording(),
                 matcher.active_notice(),
+                room_label,
             )
 
             cv2.imshow(WINDOW, frame)

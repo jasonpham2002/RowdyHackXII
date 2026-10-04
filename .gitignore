@@ -9,6 +9,7 @@ env/
 # Calibration output and runtime logs
 calibration.json
 dispatch_log.txt
+room_session.json
 
 # Test assets
 portrait.jpg

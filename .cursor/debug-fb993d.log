@@ -1,0 +1,4 @@
+{"sessionId":"fb993d","hypothesisId":"A","location":"presentation/app.js:boot","message":"presentation boot","data":{"world":true,"overview":true,"frames":5,"zones":0,"playSos":false,"room":false},"timestamp":1791106182159}
+{"sessionId":"fb993d","hypothesisId":"B","location":"presentation/app.js:click","message":"click","data":{"tag":"H2","id":"","className":"","pointerEvents":"auto"},"timestamp":1791106199821}
+{"sessionId":"fb993d","hypothesisId":"B","location":"presentation/app.js:click","message":"click","data":{"tag":"P","id":"stamp","className":"stamp","pointerEvents":"auto"},"timestamp":1791106200864}
+{"sessionId":"fb993d","hypothesisId":"B","location":"presentation/app.js:click","message":"click","data":{"tag":"BUTTON","id":"overview","className":"overview","pointerEvents":"auto"},"timestamp":1791106201539}

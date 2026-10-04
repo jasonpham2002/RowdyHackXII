@@ -1,0 +1,242 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Operation Morse — RowdyHack XII</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="viewport" id="viewport">
+    <div class="world" id="world">
+      <svg class="decor" viewBox="0 0 2200 1500" aria-hidden="true">
+        <circle cx="1100" cy="740" r="390" fill="none" stroke="#31616f" stroke-width="1.5" stroke-dasharray="3 12"/>
+        <circle cx="1100" cy="740" r="560" fill="none" stroke="#27484f" stroke-width="2"/>
+        <circle cx="1100" cy="740" r="730" fill="none" stroke="#386079" stroke-width="1" opacity="0.7"/>
+        <g stroke="#587887" stroke-width="1.5" opacity="0.8">
+          <line x1="1100" y1="740" x2="1050" y2="250"/>
+          <line x1="1100" y1="740" x2="1840" y2="470"/>
+          <line x1="1100" y1="740" x2="1780" y2="1120"/>
+          <line x1="1100" y1="740" x2="420" y2="1120"/>
+          <line x1="1100" y1="740" x2="360" y2="470"/>
+        </g>
+        <g fill="#9ed8d4">
+          <circle cx="1100" cy="350" r="4"/>
+          <circle cx="1490" cy="560" r="4"/>
+          <circle cx="1460" cy="960" r="4"/>
+          <circle cx="740" cy="960" r="4"/>
+          <circle cx="710" cy="560" r="4"/>
+        </g>
+        <g fill="#581828">
+          <circle cx="320" cy="180" r="18"/>
+          <circle cx="1960" cy="1280" r="26"/>
+          <circle cx="1880" cy="160" r="10"/>
+        </g>
+        <g fill="#386079">
+          <circle cx="260" cy="1320" r="14"/>
+          <circle cx="1680" cy="140" r="22"/>
+          <circle cx="980" cy="1360" r="8"/>
+        </g>
+        <g fill="none" stroke="#9ed8d4" stroke-width="2">
+          <path d="M160 220 h28 v28"/>
+          <path d="M2040 220 h-28 v28"/>
+          <path d="M160 1320 h28 v-28"/>
+          <path d="M2040 1320 h-28 v-28"/>
+        </g>
+      </svg>
+
+      <p class="spark spark-a">· — · ·</p>
+      <p class="spark spark-b">— — ·</p>
+      <p class="spark spark-c">· · ·</p>
+      <div class="diamond diamond-a"></div>
+      <div class="diamond diamond-b"></div>
+      <div class="glow"></div>
+
+      <div class="eye-wrap">
+        <svg class="eye" viewBox="270 150 700 430" role="img" aria-label="Anime eye">
+          <defs>
+            <radialGradient id="irisBase" cx="38%" cy="34%" r="70%">
+              <stop offset="0%" stop-color="#fbfffe"/>
+              <stop offset="14%" stop-color="#c9faf6"/>
+              <stop offset="36%" stop-color="#3dcdc6"/>
+              <stop offset="62%" stop-color="#149892"/>
+              <stop offset="100%" stop-color="#0b5553"/>
+            </radialGradient>
+            <filter id="marble" x="-20%" y="-20%" width="140%" height="140%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.02 0.028" numOctaves="2" seed="3" result="n"/>
+              <feDisplacementMap in="SourceGraphic" in2="n" scale="12" xChannelSelector="R" yChannelSelector="G"/>
+            </filter>
+            <clipPath id="eyeClip">
+              <path d="M310 400 C420 230 640 196 860 300 C930 350 940 410 880 450 C780 560 560 590 400 540 C300 500 250 450 310 400 Z"/>
+            </clipPath>
+            <clipPath id="irisClip">
+              <circle cx="655" cy="385" r="132"/>
+            </clipPath>
+          </defs>
+          <g clip-path="url(#eyeClip)">
+            <rect x="220" y="160" width="760" height="460" fill="#fff3d6"/>
+            <ellipse cx="470" cy="410" rx="150" ry="90" fill="#fffef8"/>
+            <ellipse cx="560" cy="500" rx="180" ry="48" fill="#ffe4a0" opacity="0.5"/>
+            <ellipse cx="360" cy="430" rx="46" ry="26" fill="#e7a090" opacity="0.28"/>
+            <g clip-path="url(#irisClip)">
+              <circle cx="655" cy="385" r="132" fill="url(#irisBase)"/>
+              <g filter="url(#marble)">
+                <ellipse cx="600" cy="340" rx="58" ry="40" fill="#f8fffe" opacity="0.95"/>
+                <ellipse cx="690" cy="350" rx="34" ry="24" fill="#ffffff" opacity="0.55"/>
+                <ellipse cx="630" cy="440" rx="52" ry="28" fill="#0e6c6a" opacity="0.8"/>
+                <ellipse cx="710" cy="420" rx="30" ry="22" fill="#0a4548" opacity="0.55"/>
+                <ellipse cx="590" cy="400" rx="26" ry="36" fill="#6ee6de" opacity="0.65"/>
+                <ellipse cx="670" cy="310" rx="20" ry="14" fill="#ffffff" opacity="0.8"/>
+                <ellipse cx="575" cy="450" rx="28" ry="14" fill="#178f8a" opacity="0.7"/>
+              </g>
+              <g stroke="#07383a" stroke-width="0.6" opacity="0.22">
+                <line x1="655" y1="255" x2="655" y2="515"/>
+                <line x1="525" y1="385" x2="785" y2="385"/>
+                <line x1="565" y1="295" x2="745" y2="475"/>
+                <line x1="745" y1="295" x2="565" y2="475"/>
+                <line x1="545" y1="340" x2="765" y2="430"/>
+                <line x1="545" y1="430" x2="765" y2="340"/>
+              </g>
+              <ellipse cx="575" cy="360" rx="70" ry="58" fill="#fffefb" opacity="0.82"/>
+            </g>
+            <circle cx="655" cy="385" r="132" fill="none" stroke="#062c2e" stroke-width="5"/>
+            <circle cx="662" cy="368" r="22" fill="#070c0d"/>
+            <circle cx="662" cy="368" r="28" fill="none" stroke="#123034" stroke-width="4"/>
+            <ellipse cx="636" cy="348" rx="16" ry="10" fill="#ffffff"/>
+            <circle cx="650" cy="358" r="3.2" fill="#ffffff"/>
+          </g>
+
+          <path d="M318 392 C450 228 680 198 860 292 C925 338 938 400 888 442" fill="none" stroke="#140c0a" stroke-width="4" stroke-linecap="round"/>
+          <path d="M350 424 C490 555 730 575 875 410" fill="none" stroke="#3a221c" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M330 408 C348 394 366 404 358 422 C342 426 322 418 330 408 Z" fill="#6a3832" opacity="0.75"/>
+
+          <g fill="none" stroke="#140c0a" stroke-linecap="round">
+            <path d="M 326.1 364.3 Q 318.5 356.8 313.6 350.7" stroke-width="1.15"/>
+            <path d="M 339.9 352.0 Q 336.3 344.0 327.5 337.5" stroke-width="1.15"/>
+            <path d="M 354.0 340.5 Q 349.5 331.9 341.7 324.9" stroke-width="1.15"/>
+            <path d="M 368.4 329.6 Q 363.0 320.4 356.3 312.9" stroke-width="1.15"/>
+            <path d="M 383.0 319.4 Q 376.7 309.6 371.2 301.7" stroke-width="1.15"/>
+            <path d="M 397.9 309.8 Q 390.7 299.5 386.3 291.0" stroke-width="1.15"/>
+            <path d="M 412.9 301.0 Q 409.9 290.0 401.7 281.1" stroke-width="1.15"/>
+            <path d="M 428.2 292.8 Q 424.3 281.3 417.5 271.8" stroke-width="1.15"/>
+            <path d="M 443.6 285.3 Q 439.0 273.2 433.4 263.3" stroke-width="1.15"/>
+            <path d="M 459.2 278.4 Q 453.9 265.7 449.6 255.4" stroke-width="1.15"/>
+            <path d="M 474.9 272.3 Q 468.9 259.0 466.0 248.1" stroke-width="1.15"/>
+            <path d="M 490.8 266.8 Q 489.2 252.9 482.7 241.6" stroke-width="1.15"/>
+            <path d="M 506.8 261.9 Q 504.5 247.6 499.5 235.8" stroke-width="1.15"/>
+            <path d="M 522.9 257.8 Q 520.0 242.9 516.5 230.7" stroke-width="1.15"/>
+            <path d="M 539.1 254.3 Q 535.7 238.9 533.7 226.2" stroke-width="1.15"/>
+            <path d="M 555.4 251.5 Q 551.4 235.6 551.0 222.5" stroke-width="1.15"/>
+            <path d="M 571.7 249.4 Q 572.2 233.0 568.4 219.5" stroke-width="1.15"/>
+            <path d="M 588.1 248.0 Q 588.1 231.1 586.0 217.2" stroke-width="1.15"/>
+            <path d="M 604.4 247.2 Q 604.1 229.9 603.6 215.7" stroke-width="1.15"/>
+            <path d="M 620.9 247.1 Q 620.1 229.4 621.3 214.8" stroke-width="1.15"/>
+            <path d="M 637.3 247.7 Q 636.1 229.6 639.1 214.7" stroke-width="1.15"/>
+            <path d="M 653.6 248.9 Q 657.1 230.5 656.9 215.4" stroke-width="1.15"/>
+            <path d="M 670.0 250.9 Q 673.1 232.6 674.6 217.6" stroke-width="1.15"/>
+            <path d="M 686.3 253.5 Q 688.9 235.7 692.1 221.2" stroke-width="1.15"/>
+            <path d="M 702.5 256.7 Q 704.7 239.5 709.5 225.4" stroke-width="1.15"/>
+            <path d="M 718.7 260.7 Q 720.3 244.0 726.7 230.4" stroke-width="1.15"/>
+            <path d="M 734.7 265.3 Q 740.8 249.2 743.8 236.0" stroke-width="1.15"/>
+            <path d="M 750.7 270.6 Q 756.2 255.1 760.7 242.4" stroke-width="1.15"/>
+            <path d="M 766.5 276.6 Q 771.4 261.7 777.4 249.5" stroke-width="1.15"/>
+            <path d="M 782.2 283.2 Q 786.4 268.9 793.8 257.3" stroke-width="1.15"/>
+            <path d="M 797.7 290.5 Q 801.3 276.9 810.0 265.7" stroke-width="1.15"/>
+            <path d="M 813.1 298.5 Q 820.9 285.5 826.0 274.8" stroke-width="1.15"/>
+            <path d="M 828.3 307.2 Q 835.3 294.8 841.7 284.7" stroke-width="1.15"/>
+            <path d="M 843.2 316.6 Q 849.5 304.8 857.2 295.2" stroke-width="1.15"/>
+            <path d="M 858.0 326.6 Q 863.4 315.4 872.3 306.3" stroke-width="1.15"/>
+            <path d="M 872.5 337.3 Q 877.1 326.8 887.1 318.2" stroke-width="1.15"/>
+          </g>
+          <g fill="none" stroke="#4a2c26" stroke-linecap="round">
+            <path d="M 364.6 431.5 Q 359.8 435.6 358.4 439.0" stroke-width="1.2"/>
+            <path d="M 391.8 452.0 Q 391.0 456.7 385.7 460.6" stroke-width="1.2"/>
+            <path d="M 420.0 470.1 Q 418.4 475.4 414.2 479.8" stroke-width="1.2"/>
+            <path d="M 449.1 485.7 Q 446.7 491.7 443.7 496.6" stroke-width="1.2"/>
+            <path d="M 478.9 498.9 Q 475.7 505.5 474.1 510.9" stroke-width="1.2"/>
+            <path d="M 509.2 509.5 Q 505.4 516.7 505.2 522.6" stroke-width="1.2"/>
+            <path d="M 540.0 517.5 Q 540.6 525.3 536.9 531.7" stroke-width="1.2"/>
+            <path d="M 570.9 522.8 Q 571.1 531.1 569.0 538.0" stroke-width="1.2"/>
+            <path d="M 602.0 525.4 Q 601.7 534.2 601.4 541.5" stroke-width="1.2"/>
+            <path d="M 633.0 525.2 Q 632.4 534.5 633.8 542.0" stroke-width="1.2"/>
+            <path d="M 663.7 522.1 Q 662.8 531.8 666.2 539.6" stroke-width="1.2"/>
+            <path d="M 694.0 516.2 Q 697.9 525.5 698.2 533.2" stroke-width="1.2"/>
+            <path d="M 723.7 507.3 Q 727.2 515.9 729.3 523.0" stroke-width="1.2"/>
+            <path d="M 752.7 495.3 Q 755.8 503.3 759.5 509.7" stroke-width="1.2"/>
+            <path d="M 780.9 480.3 Q 783.4 487.5 788.6 493.3" stroke-width="1.2"/>
+            <path d="M 807.9 462.2 Q 809.8 468.5 816.5 473.7" stroke-width="1.2"/>
+            <path d="M 833.8 440.8 Q 839.9 446.4 842.9 450.9" stroke-width="1.2"/>
+            <path d="M 858.3 416.3 Q 863.5 421.0 867.7 424.8" stroke-width="1.2"/>
+          </g>
+
+          
+
+          
+        </svg>
+        <p class="eye-caption">The eye is the comms device</p>
+      </div>
+
+      <button type="button" class="frame" data-id="job" style="left: 770px; top: 40px">
+        <span class="frame-index">01</span>
+        <h2>The job</h2>
+        <p>You stay silent on the job. Hands and voice are sometimes unavailable, and a phone can be out of reach. A letter board is slow. The laptop camera is already in the room.</p>
+      </button>
+
+      <button type="button" class="frame" data-id="pipe" style="left: 1560px; top: 300px">
+        <span class="frame-index">02</span>
+        <h2>The pipeline</h2>
+        <ol class="steps">
+          <li>Webcam frame</li>
+          <li>Eyelid landmarks</li>
+          <li>Eye Aspect Ratio, each eye</li>
+          <li>Your open and closed calibration</li>
+          <li>Assist shortcut, or a Morse letter</li>
+        </ol>
+      </button>
+
+      <button type="button" class="frame" data-id="lang" style="left: 1500px; top: 960px">
+        <span class="frame-index">03</span>
+        <h2>Blink language</h2>
+        <ul class="rules">
+          <li><span>40–250 ms</span> Dot</li>
+          <li><span>Past 250 ms</span> Dash</li>
+          <li><span>Open 0.7 s</span> End the letter</li>
+          <li><span>Left wink</span> Delete</li>
+          <li><span>Right wink</span> Suggestion</li>
+        </ul>
+      </button>
+
+      <button type="button" class="frame" data-id="show" style="left: 140px; top: 960px">
+        <span class="frame-index">04</span>
+        <h2>What you will show</h2>
+        <p>This part happens on the laptop, in the webcam app.</p>
+        <ol class="steps">
+          <li>Calibrate eyes open, then gently closed.</li>
+          <li>Three dots. The banner is a simulated SOS. It does not call 911.</li>
+          <li>Blink a short word. Show Raw and Clean, then press Send.</li>
+        </ol>
+      </button>
+
+      <button type="button" class="frame" data-id="after" style="left: 80px; top: 300px">
+        <span class="frame-index">05</span>
+        <h2>Limits and next</h2>
+        <p>Dispatch is simulated. The line sends after you confirm. Typing into another app happens only on Send. Nothing is uploaded.</p>
+        <p>Next: harder lighting, a consented caregiver route, a phone camera.</p>
+      </button>
+    </div>
+
+    <header class="hud">
+      <div>
+        <p class="kicker">RowdyHack XII</p>
+        <p class="hud-title">Operation Morse</p>
+      </div>
+      <div class="hud-actions">
+        <p class="stamp" id="stamp" aria-live="polite">Map</p>
+        <button type="button" class="overview" id="overview">Overview</button>
+      </div>
+    </header>
+    <p class="keys">Click a title to zoom in. Esc, or Overview, returns to the map. Keys 1–5 and the arrows move between frames.</p>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
