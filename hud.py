@@ -696,7 +696,7 @@ def draw_hud(
         0,
         0,
         w,
-        200,
+        230 if mode != "assist" else 200,
         alpha=0.72,
     )
 
@@ -734,15 +734,18 @@ def draw_hud(
         _text(
             frame,
             f"Morse: {_symbols_pretty(cur) or '---'}  -> {live_str}",
-            (20, 48),
+            (20, 36),
             CYAN,
-            1.05,
+            0.85,
             2,
         )
         typed = engine.display_text()
-        max_chars = max(10, (w - 40) // 22)
+        max_chars = max(10, (w - 220) // 18)
         shown = typed[-max_chars:]
-        _text(frame, "Text: " + (shown or "_"), (20, 100), WHITE, 1.05, 2)
+        _text(frame, "Raw: " + (shown or "_"), (20, 78), WHITE, 0.9, 2)
+        cleaned = engine.cleaned_preview() if hasattr(engine, "cleaned_preview") else ""
+        _text(frame, "Clean: " + (cleaned[-max_chars:] or "_"), (20, 118), YELLOW, 0.9, 2)
+        _text(frame, "Enter or Send confirms the clean line", (20, 152), GREY, 0.6, 1)
 
     if mode != "assist" and suggestions:
 
@@ -757,9 +760,9 @@ def draw_hud(
         _text(
             frame,
             "Suggest: " + sug,
-            (20, 150),
+            (20, 188),
             GREEN,
-            0.85,
+            0.75,
             2,
         )
 
@@ -772,10 +775,10 @@ def draw_hud(
         _text(
             frame,
             hint,
-            (20, 185),
+            (20, 216),
             YELLOW,
-            0.7,
-            2,
+            0.6,
+            1,
         )
 
     # -------------------------------------------------------------
@@ -875,17 +878,14 @@ def draw_hud(
     # -------------------------------------------------------------
 
     _panel(frame, 0, h - 96, w, h, alpha=0.78)
-    _button(frame, "customize", 16, h - 78, 250, 58, "Customize", BUTTON)
+    _button(frame, "customize", 16, h - 78, 200, 58, "Customize", BUTTON)
     mode_btn = "Switch to Morse" if mode == "assist" else "Switch to Assist"
-    _button(frame, "mode", 282, h - 78, 280, 58, mode_btn, BUTTON_ALT)
-    _text(
-        frame,
-        "q quit   o customize   c calibrate",
-        (590, h - 40),
-        WHITE,
-        0.7,
-        2,
-    )
+    _button(frame, "mode", 228, h - 78, 250, 58, mode_btn, BUTTON_ALT)
+    hint_x = 500
+    if mode != "assist":
+        _button(frame, "send", 490, h - 78, 200, 58, "Send", BUTTON)
+        hint_x = 710
+    _text(frame, "q quit   Enter send", (hint_x, h - 40), WHITE, 0.65, 2)
 
     if show_reference:
         _draw_reference(

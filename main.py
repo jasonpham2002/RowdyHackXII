@@ -18,16 +18,17 @@ Blink language:
     short blink (both eyes, 40-250 ms) .... dot
     longer blink (both eyes, over 250 ms) . dash
     pause (eyes open ~0.7s) ........ end of letter
-    longer pause (~2s) ............. space (end of word)
+    space key ...................... word break (no automatic space)
     m .............................. toggle Assist / Morse mode
     left wink ...................... backspace (Morse mode)
     right wink once ................ accept suggestion #1 (Morse mode)
     right wink twice ............... accept suggestion #2
     right wink 3 times ............. accept suggestion #3
 
-Keys: q quit | o open customize | m mode | c recalibrate
-      r reference | t typing | backspace delete | space word break
-The Customize button on the camera window opens the shortcut page.
+Keys: q quit | o open customize | m mode | Enter send cleaned
+      c recalibrate | r reference | t typing | backspace | space word break
+The Customize button opens the shortcut page. In Morse mode, Send confirms
+the cleaned sentence. Assist shortcuts are sent as written.
 """
 
 from __future__ import annotations
@@ -48,7 +49,8 @@ from calibration import run_calibration
 from predictor import WordPredictor
 from state_machine import BlinkStateMachine, Event
 from actions import ActionRunner
-from shortcuts import ShortcutMatcher
+from cleaner import clean_message
+from shortcuts import Shortcut, ShortcutMatcher
 from tracker import EyeTracker
 from typer import Typer
 from workspace import start_workspace
@@ -88,10 +90,21 @@ class TextEngine:
         self._flash_until = 0.0
         self.right_picks = 0        # consecutive right winks waiting to choose
         self._right_deadline = 0.0
+        self._clean_raw = None
+        self._clean_text = ""
 
     # ---- display helpers ---------------------------------------------- #
     def display_text(self) -> str:
         return self.text + self.current_word
+
+    def cleaned_preview(self) -> str:
+        """Readable sentence for the current raw Morse text. Not sent yet."""
+        raw = self.display_text().strip()
+        if raw == self._clean_raw:
+            return self._clean_text
+        self._clean_raw = raw
+        self._clean_text = clean_message(raw)
+        return self._clean_text
 
     def flash(self, msg: str, seconds: float = 0.8) -> None:
         self._flash_msg = msg
@@ -121,7 +134,6 @@ class TextEngine:
         self.commit_letter()
         if self.current_word:
             self.text += self.current_word + " "
-            self.typer.type_text(self.current_word + " ")
             self.current_word = ""
 
     def backspace(self) -> None:
@@ -130,11 +142,9 @@ class TextEngine:
             return
         if self.current_word:
             self.current_word = self.current_word[:-1]
-            self.typer.backspace()
             return
         if self.text:
             self.text = self.text[:-1]
-            self.typer.backspace()
 
     def note_right_wink(self, now_ms: float) -> None:
         """Count a right wink. 1, 2, or 3 picks suggestion #1, #2, or #3."""
@@ -160,8 +170,6 @@ class TextEngine:
             return
         word = suggestions[index]
         self.flash(word)
-        completion = word[len(self.current_word):]
-        self.typer.type_text(completion + " ")
         self.text += word + " "
         self.current_word = ""
         self.symbol_buffer = ""
@@ -200,10 +208,6 @@ def handle_events(events, engine: TextEngine, now_ms: float, mode: str,
             continue
         if ev is Event.LETTER_GAP:
             engine.commit_letter()
-        elif ev is Event.WORD_GAP:
-            # The 2s word pause would clear the prefix before the 3s pick lands.
-            if not engine.right_picks:
-                engine.commit_word()
         elif ev is Event.WINK_LEFT:
             engine.cancel_right_picks()
             engine.backspace()
@@ -264,6 +268,33 @@ def main() -> None:
     fps = 0.0
     last = time.perf_counter()
 
+    def send_cleaned() -> None:
+        """Send the cleaned sentence. The raw blink text stays a preview until then."""
+        if mode != "morse":
+            engine.flash("switch to Morse to send")
+            return
+        engine.commit_word()
+        raw = engine.display_text().strip()
+        cleaned = clean_message(raw)
+        if not cleaned:
+            engine.flash("nothing to send")
+            return
+        actions.run(Shortcut(
+            name="SENT",
+            pattern="",
+            max_gap_ms=0,
+            max_span_ms=0,
+            action="message",
+            message=cleaned,
+            destination="Cleaned Morse message",
+        ), matcher.demo_location)
+        if typer.enabled:
+            typer.type_text(cleaned + " ")
+        engine.text = ""
+        engine.current_word = ""
+        engine.symbol_buffer = ""
+        engine.cancel_right_picks()
+
     def toggle_mode() -> None:
         nonlocal mode
         mode = "morse" if mode == "assist" else "assist"
@@ -288,6 +319,8 @@ def main() -> None:
             webbrowser.open(f"http://127.0.0.1:{config.WORKSPACE_PORT}")
         elif name == "mode":
             toggle_mode()
+        elif name == "send":
+            send_cleaned()
 
     cv2.setMouseCallback(WINDOW, on_mouse)
 
@@ -377,6 +410,8 @@ def main() -> None:
                 engine.backspace()
             elif key == 32:  # space
                 engine.commit_word()
+            elif key in (13, 10):  # Enter sends the cleaned sentence
+                send_cleaned()
     finally:
         cap.release()
         tracker.close()

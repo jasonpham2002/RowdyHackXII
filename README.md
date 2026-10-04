@@ -27,7 +27,7 @@ Eye zoom is on by default: after the first frame, detection crops and upscales t
 | Short blink, both eyes (~40–250 ms) | Dot |
 | Longer blink, both eyes (> 250 ms) | Dash |
 | Eyes open ~0.7 s | End the current letter |
-| Eyes open ~2 s | End the word (insert a space) |
+| Space key | End the word (insert a space). A pause does not add one. |
 | Left wink (> 300 ms) | Backspace |
 | Right wink once (Morse mode) | Accept word suggestion #1 |
 | Right wink twice (Morse mode) | Accept word suggestion #2 |
