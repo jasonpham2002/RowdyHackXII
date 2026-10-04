@@ -6,7 +6,7 @@ Converts a stream of per-eye openness readings into discrete events:
     LETTER_GAP         - eyes stayed open long enough to end the current letter
     WORD_GAP           - eyes stayed open even longer -> word break (space)
     WINK_LEFT          - only the left eye closed (held) -> backspace
-    WINK_RIGHT         - only the right eye closed (held) -> accept suggestion
+    WINK_RIGHT         - only the right eye closed (held) -> count a suggestion pick
 
 The design is "episode" based. A closure episode starts when *any* eye drops
 below the close threshold and ends when *both* eyes are open again. During the
@@ -48,6 +48,7 @@ class MachineState:
 class BlinkStateMachine:
     def __init__(self, runtime: config.RuntimeConfig) -> None:
         self.runtime = runtime
+        self.last_blink_ms = 0.0
 
         # Closure episode tracking.
         self._in_episode = False
@@ -150,6 +151,7 @@ class BlinkStateMachine:
             self._awaiting_commit = True
             self._letter_committed = False
             self._word_committed = False
+            self.last_blink_ms = duration
             if duration <= config.DOT_MAX_MS:
                 return Event.DOT
             return Event.DASH
@@ -160,5 +162,8 @@ class BlinkStateMachine:
         if self._left_seen and not self._right_seen:
             return Event.WINK_LEFT
         if self._right_seen and not self._left_seen:
+            # Suggestion blinks are short: at most RIGHT_PICK_MAX_MS.
+            if duration > config.RIGHT_PICK_MAX_MS:
+                return None
             return Event.WINK_RIGHT
         return None

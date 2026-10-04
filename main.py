@@ -2,24 +2,34 @@
 
 Pipeline:
     camera -> FaceLandmarker (eye aspect ratio) -> blink/wink state machine
-    -> Morse decode
+    -> shortcut matcher (Assist) or Morse decode
     -> text buffer + word prediction -> HUD (and optional OS typing).
 
+Assist mode is the default. Three fast dots raise a simulated SOS alert.
+The shortcut editor opens at http://127.0.0.1:8765
+
 Run:
-    python main.py                 # calibrate, then start decoding
+    python main.py                 # calibrate, then start in Assist mode
+    python main.py --morse         # start in covert Morse mode
     python main.py --skip-calib    # reuse saved calibration (or defaults)
     python main.py --type          # also type confirmed words into focused app
 
 Blink language:
-    short blink (both eyes) ........ dot
-    long blink (both eyes) ......... dash
+    short blink (both eyes, 40-250 ms) .... dot
+    longer blink (both eyes, over 250 ms) . dash
     pause (eyes open ~0.7s) ........ end of letter
-    longer pause (~1.5s) ........... space (end of word)
-    left wink ...................... backspace
-    right wink ..................... accept suggestion #1
+    space key ...................... word break (no automatic space)
+    m .............................. toggle Assist / Morse mode
+    left wink ...................... backspace (Morse mode)
+    right wink once ................ keep the raw line
+    right wink twice ............... accept autocorrect, or suggestion #2
+    right wink 3 times ............. suggestion #3
 
-Keys: q quit | c recalibrate | r reference chart | t toggle typing
-      backspace delete | space insert word break
+Keys: q quit | o open customize | m mode | Enter send
+      c recalibrate | r reference | t typing | backspace | space word break
+The Customize button opens the shortcut page. Morse shows the raw line.
+Autocorrect is a right-wink choice and is not applied until you pick it.
+Send sends the line on screen. Assist shortcuts are sent as written.
 """
 
 from __future__ import annotations
@@ -28,6 +38,7 @@ import argparse
 import platform
 import threading
 import time
+import webbrowser
 from typing import List, Optional
 
 import cv2
@@ -38,10 +49,56 @@ import morse
 from calibration import run_calibration
 from predictor import WordPredictor
 from state_machine import BlinkStateMachine, Event
+from actions import ActionRunner
+from cleaner import clean_message
+from shortcuts import Shortcut, ShortcutMatcher
 from tracker import EyeTracker
 from typer import Typer
+from workspace import start_workspace
 
 WINDOW = "Eye Morse Decoder"
+
+
+def _click_to_frame(x: int, y: int, frame_w: int, frame_h: int) -> tuple:
+    """Map a window click into the camera image.
+
+    The buttons are drawn on the 1280x720 frame. A resized window reports
+    clicks in the smaller client area, so those clicks miss the buttons.
+    """
+    client = _window_client_size(WINDOW)
+    if client:
+        client_w, client_h = client
+        if client_w > 0 and client_h > 0:
+            return int(x * frame_w / client_w), int(y * frame_h / client_h)
+    try:
+        x0, y0, width, height = cv2.getWindowImageRect(WINDOW)
+        if width > 0 and height > 0:
+            return int((x - x0) * frame_w / width), int((y - y0) * frame_h / height)
+    except Exception:
+        pass
+    return x, y
+
+
+def _window_client_size(title: str):
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        hwnd = ctypes.windll.user32.FindWindowW(None, title)
+        if not hwnd:
+            return None
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
+            return None
+        width = int(rect.right - rect.left)
+        height = int(rect.bottom - rect.top)
+        if width <= 0 or height <= 0:
+            return None
+        return width, height
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -74,10 +131,23 @@ class TextEngine:
         self.current_word = ""      # in-progress word, not yet in ``text``
         self._flash_msg = ""
         self._flash_until = 0.0
+        self.right_picks = 0        # consecutive right winks waiting to choose
+        self._right_deadline = 0.0
+        self._clean_raw = None
+        self._clean_text = ""
 
     # ---- display helpers ---------------------------------------------- #
     def display_text(self) -> str:
         return self.text + self.current_word
+
+    def cleaned_preview(self) -> str:
+        """Readable sentence for the current raw Morse text. Not sent yet."""
+        raw = self.display_text().strip()
+        if raw == self._clean_raw:
+            return self._clean_text
+        self._clean_raw = raw
+        self._clean_text = clean_message(raw)
+        return self._clean_text
 
     def flash(self, msg: str, seconds: float = 0.8) -> None:
         self._flash_msg = msg
@@ -107,7 +177,6 @@ class TextEngine:
         self.commit_letter()
         if self.current_word:
             self.text += self.current_word + " "
-            self.typer.type_text(self.current_word + " ")
             self.current_word = ""
 
     def backspace(self) -> None:
@@ -116,24 +185,79 @@ class TextEngine:
             return
         if self.current_word:
             self.current_word = self.current_word[:-1]
-            self.typer.backspace()
             return
         if self.text:
             self.text = self.text[:-1]
-            self.typer.backspace()
 
-    def accept_suggestion(self, suggestions: List[str]) -> None:
-        if not suggestions:
+    def _pending_correction(self) -> str:
+        """Cleaned sentence when it differs from the raw line. Empty otherwise."""
+        raw = self.display_text().strip()
+        if not raw:
+            return ""
+        clean = self.cleaned_preview().strip()
+        if not clean or clean.upper() == raw.upper():
+            return ""
+        return clean
+
+    def choice_options(self) -> List[tuple]:
+        """Up to 3 choices. Autocorrect is offered, never applied by itself."""
+        raw = self.display_text().strip()
+        words = self.predictor.predict(self.current_word) if raw else []
+        clean = self._pending_correction()
+        if not words and not clean:
+            return []
+        rows = [("raw", raw)]
+        if clean:
+            rows.append(("clean", clean))
+        for word in words:
+            if len(rows) >= config.NUM_SUGGESTIONS:
+                break
+            rows.append(("word", word))
+        return rows
+
+    def note_right_wink(self, now_ms: float) -> None:
+        """Count a right wink. Each wink moves to the next choice."""
+        options = self.choice_options()
+        if not options:
             return
-        word = suggestions[0]
-        completion = word[len(self.current_word):]
-        self.typer.type_text(completion + " ")
-        self.text += word + " "
+        self.right_picks = min(self.right_picks + 1, len(options))
+        self._right_deadline = now_ms + config.RIGHT_SELECT_GAP_MS
+        self.flash(f"pick #{self.right_picks}", seconds=3.2)
+
+    def cancel_right_picks(self) -> None:
+        self.right_picks = 0
+        self._right_deadline = 0.0
+
+    def poll_right_picks(self, now_ms: float) -> None:
+        """Apply the counted right winks once the pause has elapsed."""
+        if self.right_picks and now_ms >= self._right_deadline:
+            index = self.right_picks - 1
+            options = self.choice_options()
+            self.cancel_right_picks()
+            self.apply_choice(options, index)
+
+    def apply_choice(self, options: List[tuple], index: int) -> None:
+        if not options or index < 0 or index >= len(options):
+            self.flash("no suggestion")
+            return
+        kind, label = options[index]
+        if kind == "raw":
+            self.flash(label)
+            return
+        if kind == "clean":
+            self.text = label + " "
+            self.current_word = ""
+            self.symbol_buffer = ""
+            self._clean_raw = None
+            self.flash(label)
+            return
+        self.flash(label)
+        self.text += label + " "
         self.current_word = ""
         self.symbol_buffer = ""
 
     def suggestions(self) -> List[str]:
-        return self.predictor.predict(self.current_word)
+        return [label for _kind, label in self.choice_options()]
 
 
 # --------------------------------------------------------------------------- #
@@ -145,24 +269,33 @@ def open_camera(index: int) -> cv2.VideoCapture:
     return cap
 
 
-def handle_events(events, engine: TextEngine, suggestions: List[str]) -> None:
+def handle_events(events, engine: TextEngine, now_ms: float, mode: str,
+                  matcher: ShortcutMatcher, actions: ActionRunner,
+                  blink_ms: float = 0.0) -> None:
     for ev in events:
-        if ev is Event.DOT:
-            engine.add_symbol(".")
-            _beep(900)
-        elif ev is Event.DASH:
-            engine.add_symbol("-")
-            _beep(600)
-        elif ev is Event.LETTER_GAP:
+        if ev is Event.DOT or ev is Event.DASH:
+            symbol = "." if ev is Event.DOT else "-"
+            _beep(900 if ev is Event.DOT else 600)
+            # A both-eyes blink while choosing must not wipe the count.
+            if mode == "morse" and engine.right_picks:
+                continue
+            if mode == "assist":
+                matcher.push(symbol, now_ms, blink_ms)
+            else:
+                engine.cancel_right_picks()
+                engine.add_symbol(symbol)
+            continue
+        if mode != "morse":
+            continue
+        if ev is Event.LETTER_GAP:
             engine.commit_letter()
-        elif ev is Event.WORD_GAP:
-            engine.commit_word()
         elif ev is Event.WINK_LEFT:
+            engine.cancel_right_picks()
             engine.backspace()
             _beep(400)
         elif ev is Event.WINK_RIGHT:
-            engine.accept_suggestion(suggestions)
-            _beep(1100)
+            engine.note_right_wink(now_ms)
+            _beep(900 + 150 * engine.right_picks)
 
 
 def main() -> None:
@@ -176,6 +309,8 @@ def main() -> None:
                         help="type confirmed words into the focused app")
     parser.add_argument("--no-zoom", action="store_true",
                         help="disable zooming into the eye region for detection")
+    parser.add_argument("--morse", action="store_true",
+                        help="start in covert Morse mode instead of Assist mode")
     args = parser.parse_args()
 
     cap = open_camera(args.camera)
@@ -204,11 +339,64 @@ def main() -> None:
     predictor = WordPredictor()
     typer = Typer(enabled=args.type)
     engine = TextEngine(predictor, typer)
+    matcher = ShortcutMatcher()
+    actions = ActionRunner()
+    start_workspace(matcher)
+    mode = "morse" if args.morse else "assist"
 
     show_reference = False
     show_eyes = True
     fps = 0.0
     last = time.perf_counter()
+
+    def send_cleaned() -> None:
+        """Send the line on screen. Autocorrect is included only if it was chosen."""
+        if mode != "morse":
+            engine.flash("switch to Morse to send")
+            return
+        engine.commit_word()
+        message = engine.display_text().strip()
+        if not message:
+            engine.flash("nothing to send")
+            return
+        actions.run(Shortcut(
+            name="SENT",
+            pattern="",
+            max_gap_ms=0,
+            max_span_ms=0,
+            action="message",
+            message=message,
+            destination="Morse message",
+        ), matcher.demo_location)
+        if typer.enabled:
+            typer.type_text(message + " ")
+        engine.text = ""
+        engine.current_word = ""
+        engine.symbol_buffer = ""
+        engine.cancel_right_picks()
+
+    def toggle_mode() -> None:
+        nonlocal mode
+        mode = "morse" if mode == "assist" else "assist"
+        matcher.clear()
+        engine.symbol_buffer = ""
+        engine.cancel_right_picks()
+        engine.flash("MORSE mode" if mode == "morse" else "ASSIST mode")
+
+    def on_mouse(event, x, y, _flags, _param) -> None:
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        fw, fh = hud.frame_size
+        x, y = _click_to_frame(x, y, fw, fh)
+        name = hud.hit_button(x, y)
+        if name == "customize":
+            webbrowser.open(f"http://127.0.0.1:{config.WORKSPACE_PORT}")
+        elif name == "mode":
+            toggle_mode()
+        elif name == "send":
+            send_cleaned()
+
+    cv2.setMouseCallback(WINDOW, on_mouse)
 
     try:
         while True:
@@ -223,10 +411,15 @@ def main() -> None:
             reading = tracker.process(rgb, now_ms)
 
             events = machine.update(reading, now_ms)
-            suggestions = engine.suggestions()
-            handle_events(events, engine, suggestions)
-            # Recompute suggestions if the buffer changed this frame.
-            suggestions = engine.suggestions()
+            handle_events(events, engine, now_ms, mode, matcher, actions,
+                          machine.last_blink_ms)
+            if mode == "assist":
+                hit = matcher.poll(now_ms)
+                if hit is not None:
+                    actions.run(hit, matcher.demo_location)
+            if mode == "morse":
+                engine.poll_right_picks(now_ms)
+            suggestions = engine.suggestions() if mode == "morse" else []
 
             # Smooth FPS estimate.
             now = time.perf_counter()
@@ -235,9 +428,12 @@ def main() -> None:
             if dt > 0:
                 fps = 0.9 * fps + 0.1 * (1.0 / dt)
 
+            alert = actions.active_alert() or ""
             hud.draw_hud(frame, reading, machine.state, runtime, engine,
                          suggestions, show_reference, typer.enabled, fps,
-                         show_eyes, tracker.zoom_enabled)
+                         show_eyes, tracker.zoom_enabled, mode,
+                         alert, actions.alert_detail if alert else "",
+                         matcher.pending_pattern())
             cv2.imshow(WINDOW, frame)
 
             key = cv2.waitKey(1) & 0xFF
@@ -254,6 +450,10 @@ def main() -> None:
                     runtime.close_thresh_right = new_rc.close_thresh_right
                     if not args.no_save:
                         runtime.save()
+            elif key == ord("o"):
+                webbrowser.open(f"http://127.0.0.1:{config.WORKSPACE_PORT}")
+            elif key == ord("m"):
+                toggle_mode()
             elif key == ord("r"):
                 show_reference = not show_reference
             elif key == ord("e"):
@@ -282,6 +482,8 @@ def main() -> None:
                 engine.backspace()
             elif key == 32:  # space
                 engine.commit_word()
+            elif key in (13, 10):  # Enter sends the cleaned sentence
+                send_cleaned()
     finally:
         cap.release()
         tracker.close()

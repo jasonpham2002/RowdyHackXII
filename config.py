@@ -48,23 +48,34 @@ SMOOTH_WINDOW = 5           # rolling median window (frames) to kill jitter
 # --------------------------------------------------------------------------- #
 # Blink / wink timing (milliseconds). These drive the state machine.
 # --------------------------------------------------------------------------- #
-BLINK_MIN_MS = 120          # closures shorter than this are ignored (natural blink)
-DOT_MAX_MS = 450            # 120..450 ms (both eyes) -> DOT, longer -> DASH
+BLINK_MIN_MS = 40           # closures shorter than this are ignored (noise)
+DOT_MAX_MS = 250            # 40..250 ms (both eyes) -> DOT, longer -> DASH
 LETTER_GAP_MS = 700         # eyes open this long -> commit the current letter
-WORD_GAP_MS = 1500          # eyes open this long -> commit letter + insert space
+WORD_GAP_MS = 2000          # still detected; a pause no longer inserts a space
 WINK_MIN_MS = 300           # a single eye must stay closed this long to count as a wink
+RIGHT_PICK_MAX_MS = 1000    # a right blink longer than this does not count toward a suggestion
+RIGHT_SELECT_GAP_MS = 3000  # pause after the last right blink before that suggestion is chosen
+
+# Shortcut matching (Assist mode). SOS is three fast dots, not the letter S.
+SOS_MAX_GAP_MS = 400        # max time between blinks inside a fast shortcut
+SOS_MAX_SPAN_MS = 1500      # whole three-dot gesture must finish inside this
+SHORTCUT_HOLD_MS = 1000     # wait after the last blink so a longer pattern can win
+ASSIST_SHOW_S = 5.0         # how long an assist message stays on screen
+WORKSPACE_PORT = 8765
+SHORTCUTS_FILE = Path(__file__).with_name("shortcuts.json")
+DISPATCH_LOG = Path(__file__).with_name("dispatch_log.txt")
 BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a blink
 
 # --------------------------------------------------------------------------- #
 # Calibration defaults (overwritten after running calibration).
 # EAR is roughly ~0.3 open / ~0.08 closed (varies a lot with eye shape).
 # --------------------------------------------------------------------------- #
-DEFAULT_CLOSE_THRESH = 0.18     # EAR below this == eye considered closed
+DEFAULT_CLOSE_THRESH = 0.22     # EAR below this == eye considered closed
 DEFAULT_MIN_OPEN_DROP = 0.06    # min open->closed EAR drop for calibration to trust itself
-# Lower threshold == smaller margin needed to count as OPEN (easier on eyes that
-# read lower / asymmetric eyes). Higher ratio puts the line closer to the closed
-# value, leaving more "open" headroom.
-CLOSE_RATIO = 0.72              # close_thresh sits 72% of the way from open toward closed
+# Higher threshold == a lighter wink counts as closed. The ratio places the
+# line between the open and closed measurements; lower ratio keeps it closer
+# to the open value.
+CLOSE_RATIO = 0.62              # close_thresh sits 62% of the way from open toward closed
 CALIB_OPEN_SECONDS = 4.0
 CALIB_CLOSED_SECONDS = 2.5
 CALIB_COUNTDOWN_SECONDS = 2.0
