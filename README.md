@@ -75,7 +75,9 @@ That opens the camera, walks you through calibration, then starts in **Assist mo
 
 Assist mode watches for custom blink shortcuts. The default shortcut is three fast dots (`...`, each gap under 400 ms), which raises a **simulated SOS** alert and writes a line to `dispatch_log.txt`. It does not call or text 911. Press `m`, or the mode button, to switch to Morse mode for letter-by-letter typing.
 
-While the camera is running, click **Customize** (or press `o`) to open the shortcut page at [http://127.0.0.1:8765](http://127.0.0.1:8765). Type a pattern or record the next blinks from the camera. A dash is a blink held past 250 ms. For several dashes, allow about 1000 ms between blinks and 5000 ms for the whole gesture.
+While the camera is running, click **Customize** (or press `o`) to open the shortcut page at [http://127.0.0.1:8765](http://127.0.0.1:8765). Type a pattern, or record blinks from that page. In Assist mode the camera also has **Record blinks**. Click it, blink the gesture, then click **Use pattern**. A new pattern is filled into the shortcut page. A dash is a blink held past 250 ms. For several dashes, allow about 1000 ms between blinks and 5000 ms for the whole gesture.
+
+A pattern that another shortcut already uses is refused. Recording it on the camera shows a warning there, such as `... is already used by SOS. Enter a new pattern.` Typing that pattern on the shortcut page shows the same warning under the pattern box and clears it. Saving the shortcut you are editing, with its own current pattern, still works.
 
 In Morse mode the window shows the raw line you blinked. Autocorrect is not applied on its own. When a cleaned sentence would change that line, it appears as choice #2, and the text stays raw until you pick it. Word suggestions fill the remaining slots, three choices at most. Click **Send** or press Enter to send the line on screen. A sent message stays up for five seconds, then the text clears. Assist shortcuts skip this step because their message is already written.
 
@@ -121,7 +123,7 @@ If you have an old `calibration.json` from an earlier version, delete it or pres
 | `Backspace` | Delete the last letter |
 | `Space` | Insert a word break. A pause does not do this. |
 
-On-screen buttons: **Customize**, **Switch to Assist / Morse**, and, in Morse mode, **Send**.
+On-screen buttons: **Customize**, **Switch to Assist / Morse**, **Record blinks** (Assist mode; it becomes **Use pattern** while recording), and, in Morse mode, **Send**.
 
 In Assist mode the HUD shows the blinks collected so far. In Morse mode it shows the raw line and the right-wink choices. Autocorrect stays in that list until you pick it. Above the buttons, an open/close bar reads **OPEN** in green, or **CLOSED** in red once your eyes pass the yellow line. FPS stays visible in both modes.
 

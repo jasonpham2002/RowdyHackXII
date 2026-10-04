@@ -29,8 +29,10 @@ frame_size = (1280, 720)
 
 
 def hit_button(x: int, y: int) -> str:
+    # A few pixels outside the painted rectangle still count as that button.
+    pad_x, pad_y = 6, 18
     for name, x1, y1, x2, y2 in buttons:
-        if x1 <= x <= x2 and y1 <= y <= y2:
+        if x1 - pad_x <= x <= x2 + pad_x and y1 - pad_y <= y <= y2 + pad_y:
             return name
     return ""
 
@@ -598,6 +600,8 @@ def draw_hud(
     alert_title: str = "",
     alert_detail: str = "",
     pending_pattern: str = "",
+    recording: bool = False,
+    pattern_notice: str = "",
 ) -> None:
 
     h, w = frame.shape[:2]
@@ -715,17 +719,22 @@ def draw_hud(
     )
 
     if mode == "assist":
-        blinks = pending_pattern or "waiting"
-        _text(frame, "ASSIST", (20, 48), GREEN, 1.15, 3)
+        blinks = pending_pattern or ("listening" if recording else "waiting")
+        _text(frame, "RECORDING" if recording else "ASSIST", (20, 48), GREEN, 1.15, 3)
         _text(frame, "Blinks: " + blinks, (20, 100), WHITE, 1.15, 3)
-        _text(
-            frame,
-            "1 second after you stop, only the longest match, for 5 seconds",
-            (20, 148),
-            YELLOW,
-            0.7,
-            2,
-        )
+        if pattern_notice:
+            _text(frame, pattern_notice, (20, 148), RED, 0.65, 2)
+        elif recording:
+            _text(frame, "Click Use pattern when the blinks are finished", (20, 148), YELLOW, 0.7, 2)
+        else:
+            _text(
+                frame,
+                "1 second after you stop, only the longest match, for 5 seconds",
+                (20, 148),
+                YELLOW,
+                0.7,
+                2,
+            )
     else:
         _text(
             frame,
@@ -873,11 +882,14 @@ def draw_hud(
     _button(frame, "customize", 16, h - 78, 200, 58, "Customize", BUTTON)
     mode_btn = "Switch to Morse" if mode == "assist" else "Switch to Assist"
     _button(frame, "mode", 228, h - 78, 250, 58, mode_btn, BUTTON_ALT)
-    hint_x = 500
     if mode != "assist":
         _button(frame, "send", 490, h - 78, 200, 58, "Send", BUTTON)
-        hint_x = 710
-    _text(frame, "q quit   Enter send", (hint_x, h - 40), WHITE, 0.65, 2)
+        record_x = 710
+    else:
+        record_x = 490
+    record_label = "Use pattern" if recording else "Record blinks"
+    _button(frame, "record", record_x, h - 78, 230, 58, record_label, BUTTON)
+    _text(frame, "q quit   Enter send", (record_x + 246, h - 40), WHITE, 0.65, 2)
 
     if show_reference:
         _draw_reference(

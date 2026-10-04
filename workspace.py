@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 
 import config
-from shortcuts import Shortcut, ShortcutMatcher
+from shortcuts import Shortcut, ShortcutMatcher, pattern_owner
 
 PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -77,6 +77,8 @@ PAGE = """<!DOCTYPE html>
     border: 1px solid var(--line); background: #12161d; color: var(--text); font: inherit;
   }
   input:focus, select:focus { outline: 2px solid var(--gold); border-color: transparent; }
+  .warn { display: none; margin: 8px 0 0; color: var(--danger); font-size: 14px; line-height: 1.4; }
+  .warn.show { display: block; }
   .empty { color: var(--muted); }
   .side { display: flex; flex-direction: column; gap: 8px; }
 </style>
@@ -105,6 +107,7 @@ PAGE = """<!DOCTYPE html>
       <form id="form">
         <label>Name<input name="name" required value="SOS"></label>
         <label>Pattern<input name="pattern" required value="..." placeholder=". and -"></label>
+        <p class="warn" id="pattern-warn" role="alert"></p>
         <label>Pause allowed between blinks (ms)<input name="max_gap_ms" type="number" value="400"></label>
         <label>Whole gesture limit (ms)<input name="max_span_ms" type="number" value="1500"></label>
         <label>What happens
@@ -136,6 +139,11 @@ async function refresh() {
   const live = document.getElementById("live");
   const pattern = data.recorded_pattern || "";
   live.textContent = data.recording ? (pretty(pattern) || "listening") : (pretty(pattern) || "idle");
+  if (data.form_pattern) {
+    hidePatternWarning();
+    document.querySelector("[name=pattern]").value = data.form_pattern;
+    fetch("/api/ack-form", {method: "POST"});
+  }
   const body = document.getElementById("rows");
   body.replaceChildren();
   if (!data.shortcuts.length) {
@@ -171,7 +179,7 @@ async function refresh() {
     edit.className = "ghost";
     edit.type = "button";
     edit.textContent = "Edit";
-    edit.onclick = () => fill(row);
+    edit.onclick = () => { hidePatternWarning(); fill(row); };
     const del = document.createElement("button");
     del.className = "danger";
     del.type = "button";
@@ -186,11 +194,35 @@ async function refresh() {
     body.appendChild(card);
   }
 }
+function showPatternWarning(owner, pattern) {
+  const warn = document.getElementById("pattern-warn");
+  const input = document.querySelector("[name=pattern]");
+  warn.textContent = pattern + " is already used by " + owner + ". Enter a new pattern.";
+  warn.classList.add("show");
+  input.value = "";
+  input.focus();
+}
+function hidePatternWarning() {
+  const warn = document.getElementById("pattern-warn");
+  warn.textContent = "";
+  warn.classList.remove("show");
+}
 document.getElementById("form").onsubmit = async (event) => {
   event.preventDefault();
   const payload = Object.fromEntries(new FormData(event.target).entries());
-  await fetch("/api/save", {method: "POST", headers: {"Content-Type": "application/json"},
+  const response = await fetch("/api/save", {method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify(payload)});
+  const data = await response.json();
+  if (!response.ok) {
+    if (data.owner) showPatternWarning(data.owner, payload.pattern);
+    else {
+      const warn = document.getElementById("pattern-warn");
+      warn.textContent = data.error || "Could not save.";
+      warn.classList.add("show");
+    }
+    return;
+  }
+  hidePatternWarning();
   refresh();
 };
 document.getElementById("record").onclick = async () => {
@@ -198,8 +230,17 @@ document.getElementById("record").onclick = async () => {
   refresh();
 };
 document.getElementById("stop").onclick = async () => {
-  const data = await (await fetch("/api/stop", {method: "POST"})).json();
-  if (data.pattern) document.querySelector("[name=pattern]").value = data.pattern;
+  const name = document.querySelector("[name=name]").value;
+  const data = await (await fetch("/api/stop", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({name})
+  })).json();
+  if (data.owner) showPatternWarning(data.owner, data.pattern || "");
+  else if (data.pattern) {
+    hidePatternWarning();
+    document.querySelector("[name=pattern]").value = data.pattern;
+  }
   refresh();
 };
 refresh();
@@ -250,6 +291,13 @@ def start_workspace(matcher: ShortcutMatcher) -> None:
         if not incoming.pattern:
             return jsonify({"ok": False, "error": "pattern must use . and -"}), 400
         current = [Shortcut(**row) for row in matcher.snapshot()["shortcuts"]]
+        owner = pattern_owner(current, incoming.pattern, incoming.name)
+        if owner:
+            return jsonify({
+                "ok": False,
+                "owner": owner,
+                "error": f"{incoming.pattern} is already used by {owner}. Enter a new pattern.",
+            }), 409
         replaced = False
         updated = []
         for row in current:
@@ -273,6 +321,11 @@ def start_workspace(matcher: ShortcutMatcher) -> None:
         matcher.save(kept)
         return jsonify({"ok": True})
 
+    @app.post("/api/ack-form")
+    def ack_form():
+        matcher.take_form_pattern()
+        return jsonify({"ok": True})
+
     @app.post("/api/record")
     def record():
         matcher.start_recording()
@@ -280,7 +333,11 @@ def start_workspace(matcher: ShortcutMatcher) -> None:
 
     @app.post("/api/stop")
     def stop():
-        return jsonify({"ok": True, "pattern": matcher.stop_recording()})
+        payload = request.get_json(silent=True) or {}
+        pattern = matcher.stop_recording()
+        current = [Shortcut(**row) for row in matcher.snapshot()["shortcuts"]]
+        owner = pattern_owner(current, pattern, str(payload.get("name", "")))
+        return jsonify({"ok": True, "pattern": pattern, "owner": owner})
 
     def run() -> None:
         app.run(host="127.0.0.1", port=config.WORKSPACE_PORT, threaded=True, use_reloader=False)

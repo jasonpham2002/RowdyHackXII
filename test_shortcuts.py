@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from actions import ActionRunner
-from shortcuts import Shortcut, ShortcutMatcher
+from shortcuts import Shortcut, ShortcutMatcher, pattern_owner
 
 
 def _matcher(tmp: Path) -> ShortcutMatcher:
@@ -102,6 +102,42 @@ def test_sos_log_says_simulated():
     assert runner.active_alert() == "SIMULATED SOS"
 
 
+def test_camera_recording_warns_when_the_pattern_exists():
+    with tempfile.TemporaryDirectory() as folder:
+        matcher = _matcher(Path(folder) / "shortcuts.json")
+        matcher.start_recording()
+        matcher.push(".", 0, 80)
+        matcher.push(".", 200, 80)
+        matcher.push(".", 400, 80)
+        pattern, owner = matcher.finish_recording()
+        assert pattern == "..."
+        assert owner == "SOS"
+        assert "already used by SOS" in matcher.active_notice()
+        assert matcher.snapshot()["form_pattern"] == ""
+
+
+def test_camera_recording_offers_a_new_pattern():
+    with tempfile.TemporaryDirectory() as folder:
+        matcher = _matcher(Path(folder) / "shortcuts.json")
+        matcher.start_recording()
+        matcher.push("-", 0, 400)
+        matcher.push(".", 500, 80)
+        pattern, owner = matcher.finish_recording()
+        assert pattern == "-."
+        assert owner == ""
+        assert matcher.snapshot()["form_pattern"] == "-."
+        assert matcher.take_form_pattern() == "-."
+        assert matcher.snapshot()["form_pattern"] == ""
+
+
+def test_used_pattern_belongs_to_the_other_shortcut():
+    with tempfile.TemporaryDirectory() as folder:
+        matcher = _matcher(Path(folder) / "shortcuts.json")
+        assert pattern_owner(matcher.shortcuts, "...", "Help") == "SOS"
+        assert pattern_owner(matcher.shortcuts, "...", "SOS") == ""
+        assert pattern_owner(matcher.shortcuts, "-.-", "Help") == ""
+
+
 if __name__ == "__main__":
     test_fast_three_dots_match_sos()
     test_slow_dots_do_not_match_sos()
@@ -109,4 +145,7 @@ if __name__ == "__main__":
     test_longer_pattern_wins_after_pause()
     test_message_action_is_simulated()
     test_sos_log_says_simulated()
+    test_camera_recording_warns_when_the_pattern_exists()
+    test_camera_recording_offers_a_new_pattern()
+    test_used_pattern_belongs_to_the_other_shortcut()
     print("shortcut tests passed")

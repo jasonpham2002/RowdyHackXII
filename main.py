@@ -59,46 +59,72 @@ from workspace import start_workspace
 WINDOW = "Eye Morse Decoder"
 
 
-def _click_to_frame(x: int, y: int, frame_w: int, frame_h: int) -> tuple:
-    """Map a window click into the camera image.
+def _scale_click(x: int, y: int, src_w: int, src_h: int,
+                 frame_w: int, frame_h: int) -> tuple:
+    """Scale a point from a window rectangle onto the camera image."""
+    if src_w <= 0 or src_h <= 0:
+        return x, y
+    return int(x * frame_w / src_w), int(y * frame_h / src_h)
 
-    The buttons are drawn on the 1280x720 frame. A resized window reports
-    clicks in the smaller client area, so those clicks miss the buttons.
+
+def _click_to_frame(x: int, y: int, frame_w: int, frame_h: int) -> tuple:
+    """Map a click onto the camera image.
+
+    OpenCV already turns a resized-window click into image pixels. Scaling
+    those pixels by the outer window size again lands above the buttons.
+    The cursor is read once, in the image child window, and scaled once.
     """
-    client = _window_client_size(WINDOW)
-    if client:
-        client_w, client_h = client
-        if client_w > 0 and client_h > 0:
-            return int(x * frame_w / client_w), int(y * frame_h / client_h)
-    try:
-        x0, y0, width, height = cv2.getWindowImageRect(WINDOW)
-        if width > 0 and height > 0:
-            return int((x - x0) * frame_w / width), int((y - y0) * frame_h / height)
-    except Exception:
-        pass
+    mapped = _cursor_in_image(frame_w, frame_h)
+    if mapped is not None:
+        return mapped
     return x, y
 
 
-def _window_client_size(title: str):
+def _cursor_in_image(frame_w: int, frame_h: int):
     if platform.system() != "Windows":
         return None
     try:
         import ctypes
         from ctypes import wintypes
 
-        hwnd = ctypes.windll.user32.FindWindowW(None, title)
-        if not hwnd:
+        user32 = ctypes.windll.user32
+        frame_hwnd = user32.FindWindowW(None, WINDOW)
+        if not frame_hwnd:
+            return None
+        image_hwnd = _largest_child(user32, frame_hwnd)
+        point = wintypes.POINT()
+        if not user32.GetCursorPos(ctypes.byref(point)):
+            return None
+        if not user32.ScreenToClient(image_hwnd, ctypes.byref(point)):
             return None
         rect = wintypes.RECT()
-        if not ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
+        if not user32.GetClientRect(image_hwnd, ctypes.byref(rect)):
             return None
-        width = int(rect.right - rect.left)
-        height = int(rect.bottom - rect.top)
-        if width <= 0 or height <= 0:
-            return None
-        return width, height
+        return _scale_click(int(point.x), int(point.y),
+                            int(rect.right - rect.left),
+                            int(rect.bottom - rect.top),
+                            frame_w, frame_h)
     except Exception:
         return None
+
+
+def _largest_child(user32, parent):
+    """OpenCV draws the camera in a child window inside the titled frame."""
+    import ctypes
+    from ctypes import wintypes
+
+    best = parent
+    best_area = 0
+    child = user32.FindWindowExW(parent, None, None, None)
+    while child:
+        rect = wintypes.RECT()
+        if user32.GetClientRect(child, ctypes.byref(rect)):
+            area = max(0, int(rect.right)) * max(0, int(rect.bottom))
+            if area > best_area:
+                best_area = area
+                best = child
+        child = user32.FindWindowExW(parent, child, None, None)
+    return best
 
 
 # --------------------------------------------------------------------------- #
@@ -375,6 +401,22 @@ def main() -> None:
         engine.symbol_buffer = ""
         engine.cancel_right_picks()
 
+    def toggle_record() -> None:
+        if mode != "assist":
+            engine.flash("switch to Assist to record", seconds=3)
+            return
+        if matcher.is_recording():
+            pattern, owner = matcher.finish_recording()
+            if not pattern:
+                engine.flash("no blinks recorded", seconds=3)
+            elif owner:
+                engine.flash(matcher.active_notice(), seconds=5)
+            else:
+                engine.flash(pattern, seconds=3)
+            return
+        matcher.start_recording()
+        engine.flash("recording blinks", seconds=2)
+
     def toggle_mode() -> None:
         nonlocal mode
         mode = "morse" if mode == "assist" else "assist"
@@ -395,6 +437,8 @@ def main() -> None:
             toggle_mode()
         elif name == "send":
             send_cleaned()
+        elif name == "record":
+            toggle_record()
 
     cv2.setMouseCallback(WINDOW, on_mouse)
 
@@ -433,7 +477,9 @@ def main() -> None:
                          suggestions, show_reference, typer.enabled, fps,
                          show_eyes, tracker.zoom_enabled, mode,
                          alert, actions.alert_detail if alert else "",
-                         matcher.pending_pattern())
+                         matcher.pending_pattern(),
+                         matcher.is_recording(),
+                         matcher.active_notice())
             cv2.imshow(WINDOW, frame)
 
             key = cv2.waitKey(1) & 0xFF

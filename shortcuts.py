@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from dataclasses import asdict, dataclass
 from typing import List, Optional
 
@@ -30,6 +31,17 @@ class Shortcut:
         return "".join(ch for ch in self.pattern if ch in ".-")
 
 
+def pattern_owner(shortcuts: List[Shortcut], pattern: str, except_name: str = "") -> str:
+    """Name of a different shortcut that already uses this pattern."""
+    cleaned = "".join(ch for ch in pattern if ch in ".-")
+    if not cleaned:
+        return ""
+    for shortcut in shortcuts:
+        if shortcut.clean_pattern() == cleaned and shortcut.name != except_name:
+            return shortcut.name
+    return ""
+
+
 class ShortcutMatcher:
     def __init__(self, path=config.SHORTCUTS_FILE) -> None:
         self.path = path
@@ -43,6 +55,9 @@ class ShortcutMatcher:
         self.recording = False
         self.recorded: List[tuple[float, str]] = []
         self._commit_at: Optional[float] = None
+        self._form_pattern = ""
+        self._notice = ""
+        self._notice_until = 0.0
         self.reload(force=True)
 
     def reload(self, force: bool = False) -> None:
@@ -85,6 +100,7 @@ class ShortcutMatcher:
                 "demo_location": self.demo_location,
                 "recording": self.recording,
                 "recorded_pattern": "".join(sym for _, sym in self.recorded),
+                "form_pattern": self._form_pattern,
                 "shortcuts": [asdict(sc) for sc in self.shortcuts],
             }
 
@@ -109,6 +125,46 @@ class ShortcutMatcher:
             self.recording = False
             pattern = "".join(sym for _, sym in self.recorded)
             return pattern
+
+    def is_recording(self) -> bool:
+        with self._lock:
+            return self.recording
+
+    def active_notice(self) -> str:
+        with self._lock:
+            if time.perf_counter() < self._notice_until:
+                return self._notice
+            return ""
+
+    def take_form_pattern(self) -> str:
+        with self._lock:
+            pattern = self._form_pattern
+            self._form_pattern = ""
+            return pattern
+
+    def finish_recording(self) -> tuple:
+        """Stop a camera recording.
+
+        A pattern another shortcut already uses sets a camera notice and is
+        not offered to the shortcut page. A new pattern is offered once.
+        """
+        pattern = self.stop_recording()
+        with self._lock:
+            shortcuts = list(self.shortcuts)
+        owner = pattern_owner(shortcuts, pattern)
+        with self._lock:
+            if owner:
+                self.recorded = []
+                self._form_pattern = ""
+                self._notice = (
+                    f"{pattern} is already used by {owner}. Enter a new pattern."
+                )
+                self._notice_until = time.perf_counter() + 5.0
+            elif pattern:
+                self._form_pattern = pattern
+                self._notice = ""
+                self._notice_until = 0.0
+        return pattern, owner
 
     def push(self, symbol: str, now_ms: float, duration_ms: float = 0.0) -> Optional[Shortcut]:
         """Record one blink. Matching waits until ``poll`` sees a 1s pause.
