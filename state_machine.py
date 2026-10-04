@@ -6,7 +6,7 @@ Converts a stream of per-eye openness readings into discrete events:
     LETTER_GAP         - eyes stayed open long enough to end the current letter
     WORD_GAP           - eyes stayed open even longer -> word break (space)
     WINK_LEFT          - only the left eye closed (held) -> backspace
-    WINK_RIGHT         - only the right eye closed (held) -> accept suggestion
+    WINK_RIGHT         - only the right eye closed (held) -> count a suggestion pick
 
 The design is "episode" based. A closure episode starts when *any* eye drops
 below the close threshold and ends when *both* eyes are open again. During the

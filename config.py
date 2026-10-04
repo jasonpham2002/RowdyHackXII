@@ -48,23 +48,24 @@ SMOOTH_WINDOW = 5           # rolling median window (frames) to kill jitter
 # --------------------------------------------------------------------------- #
 # Blink / wink timing (milliseconds). These drive the state machine.
 # --------------------------------------------------------------------------- #
-BLINK_MIN_MS = 120          # closures shorter than this are ignored (natural blink)
-DOT_MAX_MS = 450            # 120..450 ms (both eyes) -> DOT, longer -> DASH
+BLINK_MIN_MS = 40           # closures shorter than this are ignored (noise)
+DOT_MAX_MS = 250            # 40..250 ms (both eyes) -> DOT, longer -> DASH
 LETTER_GAP_MS = 700         # eyes open this long -> commit the current letter
-WORD_GAP_MS = 1500          # eyes open this long -> commit letter + insert space
+WORD_GAP_MS = 2000          # eyes open this long -> commit letter + insert space
 WINK_MIN_MS = 300           # a single eye must stay closed this long to count as a wink
+RIGHT_SELECT_GAP_MS = 800   # pause after the last right wink before that suggestion is chosen
 BOTH_CONFIRM_FRAMES = 2     # consecutive frames of "both closed" to treat as a blink
 
 # --------------------------------------------------------------------------- #
 # Calibration defaults (overwritten after running calibration).
 # EAR is roughly ~0.3 open / ~0.08 closed (varies a lot with eye shape).
 # --------------------------------------------------------------------------- #
-DEFAULT_CLOSE_THRESH = 0.18     # EAR below this == eye considered closed
+DEFAULT_CLOSE_THRESH = 0.22     # EAR below this == eye considered closed
 DEFAULT_MIN_OPEN_DROP = 0.06    # min open->closed EAR drop for calibration to trust itself
-# Lower threshold == smaller margin needed to count as OPEN (easier on eyes that
-# read lower / asymmetric eyes). Higher ratio puts the line closer to the closed
-# value, leaving more "open" headroom.
-CLOSE_RATIO = 0.72              # close_thresh sits 72% of the way from open toward closed
+# Higher threshold == a lighter wink counts as closed. The ratio places the
+# line between the open and closed measurements; lower ratio keeps it closer
+# to the open value.
+CLOSE_RATIO = 0.62              # close_thresh sits 62% of the way from open toward closed
 CALIB_OPEN_SECONDS = 4.0
 CALIB_CLOSED_SECONDS = 2.5
 CALIB_COUNTDOWN_SECONDS = 2.0

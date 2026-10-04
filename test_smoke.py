@@ -64,8 +64,8 @@ def test_state_machine():
 
     # Open baseline.
     _run(m, openv, openv, 0, 60)
-    # Short both-eyes blink (~240 ms) -> DOT.
-    ev, t = _run(m, closed, closed, 100, 210)
+    # Short both-eyes blink (~60 ms) -> DOT.
+    ev, t = _run(m, closed, closed, 100, 30)
     ev2, t = _run(m, openv, openv, t, 60)   # reopen
     got = ev + ev2
     assert Event.DOT in got, got
@@ -77,8 +77,8 @@ def test_state_machine():
     assert Event.DASH in (ev + ev2), (ev + ev2)
     print("[ok] dash detected")
 
-    # Hold eyes open > letter gap -> LETTER_GAP then WORD_GAP.
-    ev, t = _run(m, openv, openv, t, 1700)
+    # Hold eyes open past the 2s word gap -> LETTER_GAP then WORD_GAP.
+    ev, t = _run(m, openv, openv, t, 2200)
     assert Event.LETTER_GAP in ev, ev
     assert Event.WORD_GAP in ev, ev
     print("[ok] letter gap + word gap")
@@ -102,7 +102,7 @@ def test_state_machine():
     # Natural (too-short) blink is ignored.
     m4 = BlinkStateMachine(rc)
     _run(m4, openv, openv, 0, 60)
-    ev, t = _run(m4, closed, closed, 100, 60)   # ~60-90 ms
+    ev, t = _run(m4, closed, closed, 100, 0)   # ~30 ms, under the ignore floor
     ev2, t = _run(m4, openv, openv, t, 60)
     assert Event.DOT not in (ev + ev2) and Event.DASH not in (ev + ev2)
     print("[ok] natural blink ignored")

@@ -11,12 +11,14 @@ Run:
     python main.py --type          # also type confirmed words into focused app
 
 Blink language:
-    short blink (both eyes) ........ dot
-    long blink (both eyes) ......... dash
+    short blink (both eyes, 40-250 ms) .... dot
+    longer blink (both eyes, over 250 ms) . dash
     pause (eyes open ~0.7s) ........ end of letter
-    longer pause (~1.5s) ........... space (end of word)
+    longer pause (~2s) ............. space (end of word)
     left wink ...................... backspace
-    right wink ..................... accept suggestion #1
+    right wink once ................ accept suggestion #1
+    right wink twice ............... accept suggestion #2
+    right wink 3 times ............. accept suggestion #3
 
 Keys: q quit | c recalibrate | r reference chart | t toggle typing
       backspace delete | space insert word break
@@ -74,6 +76,8 @@ class TextEngine:
         self.current_word = ""      # in-progress word, not yet in ``text``
         self._flash_msg = ""
         self._flash_until = 0.0
+        self.right_picks = 0        # consecutive right winks waiting to choose
+        self._right_deadline = 0.0
 
     # ---- display helpers ---------------------------------------------- #
     def display_text(self) -> str:
@@ -122,15 +126,35 @@ class TextEngine:
             self.text = self.text[:-1]
             self.typer.backspace()
 
-    def accept_suggestion(self, suggestions: List[str]) -> None:
-        if not suggestions:
+    def note_right_wink(self, now_ms: float) -> None:
+        """Count a right wink. 1, 2, or 3 picks suggestion #1, #2, or #3."""
+        self.right_picks = min(self.right_picks + 1, config.NUM_SUGGESTIONS)
+        self._right_deadline = now_ms + config.RIGHT_SELECT_GAP_MS
+        self.flash(f"pick #{self.right_picks}")
+
+    def cancel_right_picks(self) -> None:
+        self.right_picks = 0
+        self._right_deadline = 0.0
+
+    def poll_right_picks(self, now_ms: float, suggestions: List[str]) -> None:
+        """Apply the counted right winks once the pause has elapsed."""
+        if self.right_picks and now_ms >= self._right_deadline:
+            index = self.right_picks - 1
+            self.cancel_right_picks()
+            self.accept_suggestion(suggestions, index)
+
+    def accept_suggestion(self, suggestions: List[str], index: int = 0) -> None:
+        if not suggestions or index < 0 or index >= len(suggestions):
+            self.flash("no suggestion")
             return
-        word = suggestions[0]
+        word = suggestions[index]
+        self.flash(word)
         completion = word[len(self.current_word):]
         self.typer.type_text(completion + " ")
         self.text += word + " "
         self.current_word = ""
         self.symbol_buffer = ""
+        self.cancel_right_picks()
 
     def suggestions(self) -> List[str]:
         return self.predictor.predict(self.current_word)
@@ -145,12 +169,14 @@ def open_camera(index: int) -> cv2.VideoCapture:
     return cap
 
 
-def handle_events(events, engine: TextEngine, suggestions: List[str]) -> None:
+def handle_events(events, engine: TextEngine, now_ms: float) -> None:
     for ev in events:
         if ev is Event.DOT:
+            engine.cancel_right_picks()
             engine.add_symbol(".")
             _beep(900)
         elif ev is Event.DASH:
+            engine.cancel_right_picks()
             engine.add_symbol("-")
             _beep(600)
         elif ev is Event.LETTER_GAP:
@@ -158,11 +184,12 @@ def handle_events(events, engine: TextEngine, suggestions: List[str]) -> None:
         elif ev is Event.WORD_GAP:
             engine.commit_word()
         elif ev is Event.WINK_LEFT:
+            engine.cancel_right_picks()
             engine.backspace()
             _beep(400)
         elif ev is Event.WINK_RIGHT:
-            engine.accept_suggestion(suggestions)
-            _beep(1100)
+            engine.note_right_wink(now_ms)
+            _beep(900 + 150 * engine.right_picks)
 
 
 def main() -> None:
@@ -224,7 +251,8 @@ def main() -> None:
 
             events = machine.update(reading, now_ms)
             suggestions = engine.suggestions()
-            handle_events(events, engine, suggestions)
+            handle_events(events, engine, now_ms)
+            engine.poll_right_picks(now_ms, suggestions)
             # Recompute suggestions if the buffer changed this frame.
             suggestions = engine.suggestions()
 

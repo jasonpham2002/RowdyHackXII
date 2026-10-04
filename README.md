@@ -24,14 +24,16 @@ Eye zoom is on by default: after the first frame, detection crops and upscales t
 
 | Gesture | Meaning |
 | --- | --- |
-| Short blink, both eyes (~120–450 ms) | Dot |
-| Long blink, both eyes (> 450 ms) | Dash |
+| Short blink, both eyes (~40–250 ms) | Dot |
+| Longer blink, both eyes (> 250 ms) | Dash |
 | Eyes open ~0.7 s | End the current letter |
-| Eyes open ~1.5 s | End the word (insert a space) |
+| Eyes open ~2 s | End the word (insert a space) |
 | Left wink (> 300 ms) | Backspace |
-| Right wink (> 300 ms) | Accept word suggestion #1 |
+| Right wink once | Accept word suggestion #1 |
+| Right wink twice | Accept word suggestion #2 |
+| Right wink 3 times | Accept word suggestion #3 |
 
-Blinks shorter than ~120 ms are ignored (normal involuntary blinks).
+Blinks shorter than ~40 ms are ignored (camera noise). A close of 40–250 ms is a dot. Anything held past 250 ms is a dash.
 
 ## Requirements
 
@@ -112,11 +114,11 @@ The HUD shows the live Morse buffer, the letter it would become, typed text, wor
 
 All timing and thresholds live in `config.py`. Useful ones:
 
-- `DOT_MAX_MS` — boundary between a dot and a dash (default 450)
+- `DOT_MAX_MS` — longest close that is still a dot (default 250). Longer than this is a dash.
 - `LETTER_GAP_MS` / `WORD_GAP_MS` — how long to pause to commit a letter or a word
 - `BLINK_MIN_MS` — shortest blink that counts (default 120)
-- `CLOSE_RATIO` — where the calibrated threshold sits between your open and closed EAR (default 0.72; higher means easier to register as open)
-- `DEFAULT_CLOSE_THRESH` — used only when you skip calibration (default 0.18)
+- `CLOSE_RATIO` — where the calibrated threshold sits between your open and closed EAR (default 0.62; lower means a lighter wink counts as closed)
+- `DEFAULT_CLOSE_THRESH` — used only when you skip calibration (default 0.22)
 
 During a demo, `[` and `]` are faster than editing the file. Changes are saved to `calibration.json`.
 

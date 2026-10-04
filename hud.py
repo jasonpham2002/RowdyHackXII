@@ -756,9 +756,15 @@ def draw_hud(
             2,
         )
 
+        pick = getattr(engine, "right_picks", 0)
+        hint = (
+            f"(right x{pick} -> #{pick})"
+            if pick
+            else "(right wink x1 #1, x2 #2, x3 #3)"
+        )
         _text(
             frame,
-            "(right wink = accept #1)",
+            hint,
             (
                 20,
                 155,
