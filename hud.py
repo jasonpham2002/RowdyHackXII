@@ -835,6 +835,16 @@ def draw_hud(
             1,
         )
 
+    if mode != "assist":
+        _text(
+            frame,
+            "Send: left wink, then right wink",
+            (20, 220 if suggestions else 150),
+            YELLOW,
+            0.6,
+            1,
+        )
+
     # -------------------------------------------------------------
     # Flash message
     # -------------------------------------------------------------

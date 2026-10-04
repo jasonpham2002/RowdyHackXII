@@ -17,7 +17,7 @@ camera → MediaPipe FaceLandmarker → Eye Aspect Ratio (EAR)
 2. **Measure.** Each eye gets an Eye Aspect Ratio: vertical opening divided by eye width. A closed eye drops toward 0. Because it is a ratio, distance from the camera does not matter much.
 3. **Calibrate.** A short guided capture records *your* open and closed EAR for each eye and sets a personal threshold. Narrow or uneven eyes are handled separately.
 4. **Assist.** A saved pattern of dots and dashes runs an action. The app waits one second after the last blink, then shows only the longest match for five seconds. Three dots and four dots do not both fire.
-5. **Morse.** Hold length decides dot vs dash. A short pause ends a letter. A pause does not insert a space. The screen shows the raw line. When autocorrect would change it, that cleaned line is a right-wink choice and is not applied until you pick it. Other slots are word suggestions, three choices at most. **Send** or Enter sends the line on screen.
+5. **Morse.** Hold length decides dot vs dash. A short pause ends a letter. A pause does not insert a space. The screen shows the raw line. When autocorrect would change it, that cleaned line is a right-wink choice and is not applied until you pick it. Other slots are word suggestions, three choices at most. A left wink followed by a right wink sends the line on screen. **Send** or Enter does the same.
 
 Eye zoom is on by default: after the first frame, detection crops and upscales the region around your eyes so small eyes get more pixels. A yellow box shows that region. If the zoomed crop misses your face, it falls back to the full frame.
 
@@ -29,7 +29,8 @@ Eye zoom is on by default: after the first frame, detection crops and upscales t
 | Longer blink, both eyes (> 250 ms) | Dash |
 | Eyes open ~0.7 s | End the current letter |
 | Space key | End the word (insert a space). A pause does not add one. |
-| Left wink (> 300 ms) | Backspace |
+| Left wink, then right wink within 2 s (Morse) | Send the line on screen |
+| Left wink alone (> 300 ms) | Backspace, after the 2 s send window |
 | Right wink once, then a 3 s pause (Morse) | Keep the raw line (choice #1) |
 | Right wink twice, then a 3 s pause (Morse) | Accept choice #2: the cleaned line when autocorrect is offered, otherwise the first word suggestion |
 | Right wink 3 times, then a 3 s pause (Morse) | Accept choice #3 when a third choice is listed |
@@ -79,7 +80,7 @@ While the camera is running, click **Customize** (or press `o`) to open the shor
 
 A pattern that another shortcut already uses is refused. Recording it on the camera shows a warning there, such as `... is already used by SOS. Enter a new pattern.` Typing that pattern on the shortcut page shows the same warning under the pattern box and clears it. Saving the shortcut you are editing, with its own current pattern, still works.
 
-In Morse mode the window shows the raw line you blinked. Autocorrect is not applied on its own. When a cleaned sentence would change that line, it appears as choice #2, and the text stays raw until you pick it. Word suggestions fill the remaining slots, three choices at most. Click **Send** or press Enter to send the line on screen. A sent message stays up for five seconds, then the text clears. Assist shortcuts skip this step because their message is already written.
+In Morse mode the window shows the raw line you blinked. Autocorrect is not applied on its own. When a cleaned sentence would change that line, it appears as choice #2, and the text stays raw until you pick it. Word suggestions fill the remaining slots, three choices at most. Wink the left eye, then the right eye, to send the line on screen. Click **Send** or press Enter to do the same. A sent message stays up for five seconds, then the text clears. Assist shortcuts skip this step because their message is already written.
 
 Other ways to start:
 
@@ -112,7 +113,7 @@ If you have an old `calibration.json` from an earlier version, delete it or pres
 | `q` or `Esc` | Quit |
 | `o` | Open the shortcut page |
 | `m` | Toggle Assist and Morse |
-| `Enter` | Send the Morse line on screen |
+| `Enter` | Send the Morse line on screen. A left wink then a right wink does this too. |
 | `c` | Recalibrate |
 | `r` | Toggle the Morse reference chart |
 | `e` | Toggle the zoomed eye inset |

@@ -26,7 +26,8 @@ Blink language:
     pause (eyes open ~0.7s) .............. end of letter
     space key ............................ word break (no automatic space)
     m .................................... toggle Assist / Morse mode
-    left wink ............................ backspace (Morse mode)
+    left wink, then right wink ........... send the line (Morse mode)
+    left wink alone ...................... backspace, after a short wait (Morse mode)
     right wink once ...................... keep the raw line
     right wink twice ..................... accept autocorrect, or suggestion #2
     right wink 3 times ................... suggestion #3
@@ -197,6 +198,7 @@ class TextEngine:
         self._flash_until = 0.0
         self.right_picks = 0
         self._right_deadline = 0.0
+        self._send_arm_until = 0.0
         self._clean_raw: Optional[str] = None
         self._clean_text = ""
 
@@ -247,7 +249,27 @@ class TextEngine:
             self.text += self.current_word + " "
             self.current_word = ""
 
+    def arm_send_gesture(self, now_ms: float) -> None:
+        """A left wink may start a send. A right wink must follow before it deletes."""
+        self._send_arm_until = now_ms + config.SEND_GESTURE_MS
+        self.flash("right wink sends", seconds=1.8)
+
+    def confirm_send_gesture(self, now_ms: float) -> bool:
+        """Return True when a right wink arrived in time to send."""
+        if self._send_arm_until and now_ms <= self._send_arm_until:
+            self._send_arm_until = 0.0
+            return True
+        return False
+
+    def expire_send_gesture(self, now_ms: float) -> bool:
+        """A left wink with no following right wink becomes a backspace."""
+        if self._send_arm_until and now_ms > self._send_arm_until:
+            self.backspace()
+            return True
+        return False
+
     def backspace(self) -> None:
+        self._send_arm_until = 0.0
         if self.symbol_buffer:
             self.symbol_buffer = self.symbol_buffer[:-1]
             return
@@ -372,6 +394,7 @@ def handle_events(
     matcher: ShortcutMatcher,
     actions: ActionRunner,
     blink_ms: float = 0.0,
+    on_send=None,
 ) -> None:
     for event in events:
         if event is Event.DOT or event is Event.DASH:
@@ -384,6 +407,8 @@ def handle_events(
             if mode == "assist":
                 matcher.push(symbol, now_ms, blink_ms)
             else:
+                if engine._send_arm_until:
+                    engine.backspace()
                 engine.cancel_right_picks()
                 engine.add_symbol(symbol)
 
@@ -397,12 +422,17 @@ def handle_events(
 
         elif event is Event.WINK_LEFT:
             engine.cancel_right_picks()
-            engine.backspace()
+            engine.arm_send_gesture(now_ms)
             _beep(400)
 
         elif event is Event.WINK_RIGHT:
-            engine.note_right_wink(now_ms)
-            _beep(900 + 150 * engine.right_picks)
+            if engine.confirm_send_gesture(now_ms):
+                if on_send is not None:
+                    on_send()
+                _beep(1200)
+            else:
+                engine.note_right_wink(now_ms)
+                _beep(900 + 150 * engine.right_picks)
 
 
 # --------------------------------------------------------------------------- #
@@ -617,6 +647,7 @@ def main() -> None:
         matcher.clear()
         engine.symbol_buffer = ""
         engine.cancel_right_picks()
+        engine._send_arm_until = 0.0
         engine.flash("MORSE mode" if mode == "morse" else "ASSIST mode")
 
     def on_mouse(event, x, y, _flags, _param) -> None:
@@ -671,7 +702,11 @@ def main() -> None:
                 matcher,
                 actions,
                 machine.last_blink_ms,
+                send_confirmed_message,
             )
+
+            if mode == "morse":
+                engine.expire_send_gesture(now_ms)
 
             if mode == "assist":
                 hit = matcher.poll(now_ms)

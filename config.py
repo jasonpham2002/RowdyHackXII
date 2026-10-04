@@ -55,6 +55,7 @@ WORD_GAP_MS = 2000          # still detected; a pause no longer inserts a space
 WINK_MIN_MS = 300           # a single eye must stay closed this long to count as a wink
 RIGHT_PICK_MAX_MS = 1000    # a right blink longer than this does not count toward a suggestion
 RIGHT_SELECT_GAP_MS = 3000  # pause after the last right blink before that suggestion is chosen
+SEND_GESTURE_MS = 2000      # left wink, then a right wink inside this window, sends the line
 
 # Shortcut matching (Assist mode). SOS is three fast dots, not the letter S.
 SOS_MAX_GAP_MS = 400        # max time between blinks inside a fast shortcut
