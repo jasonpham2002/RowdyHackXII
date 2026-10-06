@@ -8,20 +8,15 @@ Pipeline:
 Assist mode is the default. Three fast dots raise a simulated SOS alert.
 The shortcut editor opens at http://127.0.0.1:8765
 
-Trusted Text Room demo:
-    Start the room server separately:
-        python chat_server.py --host 0.0.0.0 --port 8766
-
-    Then start this app with a matching room:
-        python main.py --morse --room ROWDY1 --sender-name "Gail"
-
-    Only confirmed text is published to the room. Webcam frames, landmarks,
+Trusted Text Room:
+    python main.py opens the room page. Host a room or join another laptop
+    there. Send publishes only the confirmed line. Webcam frames, landmarks,
     blink events, calibration values, and unfinished Morse drafts stay local.
 
 Run:
     python main.py
     python main.py --morse
-    python main.py --morse --room ROWDY1 --sender-name "Gail"
+    python main.py --morse --room ROWDY1 --sender-name "Gail"  # optional overrides
     python main.py --skip-calib
     python main.py --type
 
@@ -31,7 +26,8 @@ Blink language:
     pause (eyes open ~0.7s) .............. end of letter
     space key ............................ word break (no automatic space)
     m .................................... toggle Assist / Morse mode
-    left wink ............................ backspace (Morse mode)
+    left wink, then right wink ........... send the line (Morse mode)
+    left wink alone ...................... backspace, after a short wait (Morse mode)
     right wink once ...................... keep the raw line
     right wink twice ..................... accept autocorrect, or suggestion #2
     right wink 3 times ................... suggestion #3
@@ -51,6 +47,7 @@ import argparse
 import platform
 import threading
 import time
+import queue
 import webbrowser
 from typing import List, Optional
 
@@ -61,7 +58,7 @@ import hud
 import morse
 from actions import ActionRunner
 from calibration import run_calibration
-from chat_client import publish_confirmed_message
+from chat_client import fetch_messages, load_session, publish_confirmed_message
 from cleaner import clean_message
 from predictor import WordPredictor
 from shortcuts import Shortcut, ShortcutMatcher
@@ -202,6 +199,7 @@ class TextEngine:
         self._flash_until = 0.0
         self.right_picks = 0
         self._right_deadline = 0.0
+        self._send_arm_until = 0.0
         self._clean_raw: Optional[str] = None
         self._clean_text = ""
 
@@ -252,7 +250,27 @@ class TextEngine:
             self.text += self.current_word + " "
             self.current_word = ""
 
+    def arm_send_gesture(self, now_ms: float) -> None:
+        """A left wink may start a send. A right wink must follow before it deletes."""
+        self._send_arm_until = now_ms + config.SEND_GESTURE_MS
+        self.flash("right wink sends", seconds=1.8)
+
+    def confirm_send_gesture(self, now_ms: float) -> bool:
+        """Return True when a right wink arrived in time to send."""
+        if self._send_arm_until and now_ms <= self._send_arm_until:
+            self._send_arm_until = 0.0
+            return True
+        return False
+
+    def expire_send_gesture(self, now_ms: float) -> bool:
+        """A left wink with no following right wink becomes a backspace."""
+        if self._send_arm_until and now_ms > self._send_arm_until:
+            self.backspace()
+            return True
+        return False
+
     def backspace(self) -> None:
+        self._send_arm_until = 0.0
         if self.symbol_buffer:
             self.symbol_buffer = self.symbol_buffer[:-1]
             return
@@ -358,12 +376,60 @@ class TextEngine:
 # --------------------------------------------------------------------------- #
 # Camera.
 # --------------------------------------------------------------------------- #
-def open_camera(index: int) -> cv2.VideoCapture:
-    backend = cv2.CAP_DSHOW if platform.system() == "Windows" else 0
-    cap = cv2.VideoCapture(index, backend)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
-    return cap
+class ThreadedCamera:
+    """Continuously reads frames in a background thread to prevent buffer lag on macOS."""
+    def __init__(self, index: int = 0):
+        system = platform.system()
+        if system == "Windows":
+            backend = cv2.CAP_DSHOW
+        elif system == "Darwin":
+            backend = cv2.CAP_AVFOUNDATION
+        else:
+            backend = 0
+            
+        self.cap = cv2.VideoCapture(index, backend)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+
+        self.ret, self.frame = self.cap.read()
+        self.running = True
+        self.lock = threading.Lock()
+        self.condition = threading.Condition(self.lock)
+        self.new_frame = False
+        
+        self.thread = threading.Thread(target=self._update, daemon=True)
+        self.thread.start()
+
+    def _update(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            with self.lock:
+                self.ret = ret
+                if ret:
+                    self.frame = frame
+                self.new_frame = True
+                self.condition.notify_all()
+            if not ret:
+                time.sleep(0.01)
+
+    def read(self):
+        with self.lock:
+            while self.running and not self.new_frame:
+                if not self.condition.wait(timeout=1.0):
+                    break
+            self.new_frame = False
+            return self.ret, (self.frame.copy() if self.frame is not None else None)
+
+    def release(self):
+        self.running = False
+        with self.lock:
+            self.condition.notify_all()
+        self.thread.join(timeout=1.0)
+        self.cap.release()
+
+    def isOpened(self):
+        return self.cap.isOpened()
 
 
 # --------------------------------------------------------------------------- #
@@ -377,6 +443,7 @@ def handle_events(
     matcher: ShortcutMatcher,
     actions: ActionRunner,
     blink_ms: float = 0.0,
+    on_send=None,
 ) -> None:
     for event in events:
         if event is Event.DOT or event is Event.DASH:
@@ -389,6 +456,8 @@ def handle_events(
             if mode == "assist":
                 matcher.push(symbol, now_ms, blink_ms)
             else:
+                if engine._send_arm_until:
+                    engine.backspace()
                 engine.cancel_right_picks()
                 engine.add_symbol(symbol)
 
@@ -402,12 +471,17 @@ def handle_events(
 
         elif event is Event.WINK_LEFT:
             engine.cancel_right_picks()
-            engine.backspace()
+            engine.arm_send_gesture(now_ms)
             _beep(400)
 
         elif event is Event.WINK_RIGHT:
-            engine.note_right_wink(now_ms)
-            _beep(900 + 150 * engine.right_picks)
+            if engine.confirm_send_gesture(now_ms):
+                if on_send is not None:
+                    on_send()
+                _beep(1200)
+            else:
+                engine.note_right_wink(now_ms)
+                _beep(900 + 150 * engine.right_picks)
 
 
 # --------------------------------------------------------------------------- #
@@ -450,31 +524,53 @@ def main() -> None:
 
     parser.add_argument(
         "--room",
-        default="ROWDY1",
-        help="Trusted Text Room code for confirmed Morse messages.",
+        default=None,
+        help="Override the room code saved on the setup page.",
     )
 
     parser.add_argument(
         "--room-server",
-        default="http://127.0.0.1:8766",
-        help="Trusted Text Room server URL running on this laptop.",
+        default=None,
+        help="Override the room server saved on the setup page.",
     )
 
     parser.add_argument(
         "--sender-name",
-        default="Eye Morse",
-        help="Name shown beside confirmed room messages.",
+        default=None,
+        help="Override the name saved on the setup page.",
     )
 
     args = parser.parse_args()
 
-    room_code = "".join(
-        char
-        for char in args.room.upper()
-        if char.isalnum()
-    )[:12] or "ROWDY1"
+    def active_room() -> dict:
+        session = load_session()
+        if args.room:
+            session["room"] = "".join(
+                char for char in args.room.upper() if char.isalnum()
+            )[:12] or session["room"]
+        if args.sender_name:
+            session["name"] = args.sender_name.strip()[:40] or session["name"]
+        if args.room_server:
+            session["server_url"] = args.room_server.strip().rstrip("/")
+        return session
 
-    cap = open_camera(args.camera)
+    def start_room_server() -> None:
+        def run() -> None:
+            try:
+                from chat_server import run_server
+                run_server("0.0.0.0", config.ROOM_PORT)
+            except Exception as exc:
+                print(f"[room] server not started: {exc}")
+
+        threading.Thread(target=run, daemon=True).start()
+
+    start_room_server()
+    joined = active_room()
+    print(
+        f"[room] {joined['name']} in {joined['room']} via {joined['server_url']}"
+    )
+
+    cap = ThreadedCamera(args.camera)
 
     if not cap.isOpened():
         raise SystemExit(f"Could not open camera index {args.camera}")
@@ -514,15 +610,38 @@ def main() -> None:
 
     mode = "morse" if args.morse else "assist"
 
-    print(
-        f"[room] confirmed Morse messages will publish to "
-        f"{args.room_server.rstrip('/')}/api/rooms/{room_code}/messages"
-    )
-
     show_reference = False
     show_eyes = True
     fps = 0.0
     last = time.perf_counter()
+    room_label = ""
+    room_queue = queue.Queue()
+
+    def poll_room():
+        seen_ids = set()
+        primed = False
+        while True:
+            try:
+                info = active_room()
+                incoming, err = fetch_messages(info["room"], info["server_url"])
+                msgs = []
+                if not err:
+                    for item in incoming:
+                        mid = str(item.get("id", ""))
+                        if not mid or mid in seen_ids:
+                            continue
+                        seen_ids.add(mid)
+                        sender = str(item.get("sender", ""))
+                        text = str(item.get("text", "")).strip()
+                        if primed and sender != info["name"] and text:
+                            msgs.append(f"{sender}: {text[:80]}")
+                    primed = True
+                room_queue.put((f"Room {info['room']} · {info['name']}", msgs))
+            except Exception:
+                pass
+            time.sleep(1.0)
+
+    threading.Thread(target=poll_room, daemon=True).start()
 
     def send_confirmed_message() -> None:
         """Send only text visible on screen after explicit user confirmation."""
@@ -552,15 +671,16 @@ def main() -> None:
             matcher.demo_location,
         )
 
+        joined = active_room()
         delivered, error = publish_confirmed_message(
             text=message,
-            room=room_code,
-            sender=args.sender_name,
-            server_url=args.room_server,
+            room=joined["room"],
+            sender=joined["name"],
+            server_url=joined["server_url"],
         )
 
         if delivered:
-            engine.flash(f"sent to room {room_code}", seconds=1.8)
+            engine.flash(f"sent to room {joined['room']}", seconds=1.8)
         else:
             engine.flash(f"local send only: {error}", seconds=2.8)
 
@@ -601,6 +721,7 @@ def main() -> None:
         matcher.clear()
         engine.symbol_buffer = ""
         engine.cancel_right_picks()
+        engine._send_arm_until = 0.0
         engine.flash("MORSE mode" if mode == "morse" else "ASSIST mode")
 
     def on_mouse(event, x, y, _flags, _param) -> None:
@@ -624,6 +745,10 @@ def main() -> None:
 
         elif name == "record":
             toggle_record()
+
+        elif name == "room":
+            webbrowser.open(f"http://127.0.0.1:{config.ROOM_PORT}/")
+            engine.flash("room page opened", seconds=2)
 
     cv2.setMouseCallback(WINDOW, on_mouse)
 
@@ -651,7 +776,11 @@ def main() -> None:
                 matcher,
                 actions,
                 machine.last_blink_ms,
+                send_confirmed_message,
             )
+
+            if mode == "morse":
+                engine.expire_send_gesture(now_ms)
 
             if mode == "assist":
                 hit = matcher.poll(now_ms)
@@ -670,6 +799,15 @@ def main() -> None:
 
             if dt > 0:
                 fps = 0.9 * fps + 0.1 * (1.0 / dt)
+
+            try:
+                while True:
+                    rl, msgs = room_queue.get_nowait()
+                    room_label = rl
+                    for msg in msgs:
+                        engine.flash(msg, seconds=5)
+            except queue.Empty:
+                pass
 
             alert = actions.active_alert() or ""
 
@@ -691,6 +829,7 @@ def main() -> None:
                 matcher.pending_pattern(),
                 matcher.is_recording(),
                 matcher.active_notice(),
+                room_label,
             )
 
             cv2.imshow(WINDOW, frame)

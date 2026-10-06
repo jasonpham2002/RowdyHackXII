@@ -126,7 +126,7 @@ def test_camera_recording_offers_a_new_pattern():
         assert pattern == "-."
         assert owner == ""
         assert matcher.snapshot()["form_pattern"] == "-."
-        assert matcher.take_form_pattern() == "-."
+        assert matcher.take_form_pattern()["pattern"] == "-."
         assert matcher.snapshot()["form_pattern"] == ""
 
 

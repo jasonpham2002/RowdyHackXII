@@ -19,9 +19,14 @@ RED = (0, 0, 255)
 YELLOW = (0, 230, 230)
 CYAN = (230, 230, 0)
 GREY = (170, 170, 170)
-PANEL = (25, 25, 25)
-BUTTON = (40, 90, 160)
-BUTTON_ALT = (90, 70, 30)
+# Briefing palette, stored as OpenCV BGR.
+INK = (27, 28, 26)          # #1a1c1b
+CREAM = (212, 231, 246)     # #f6e7d4
+TEAL = (79, 72, 39)         # #27484f
+TEAL_EDGE = (111, 97, 49)   # #31616f
+IRIS = (212, 216, 158)      # #9ed8d4
+WINE = (40, 24, 88)         # #581828
+PANEL = INK
 
 # Click targets filled by draw_hud. Each item is (name, x1, y1, x2, y2).
 buttons: list = []
@@ -37,11 +42,58 @@ def hit_button(x: int, y: int) -> str:
     return ""
 
 
-def _button(frame, name, x, y, w, h, label, fill) -> None:
+def _brackets(frame, x, y, w, h, color) -> None:
+    """Corner ticks, the same mark used on the briefing frames."""
+    arm = 10
+    x1, y1 = x + 4, y + 4
+    x2, y2 = x + w - 5, y + h - 5
+    pairs = (
+        ((x1, y1), (x1 + arm, y1), (x1, y1 + arm)),
+        ((x2, y1), (x2 - arm, y1), (x2, y1 + arm)),
+        ((x1, y2), (x1 + arm, y2), (x1, y2 - arm)),
+        ((x2, y2), (x2 - arm, y2), (x2, y2 - arm)),
+    )
+    for origin, horizontal, vertical in pairs:
+        cv2.line(frame, origin, horizontal, color, 2, cv2.LINE_AA)
+        cv2.line(frame, origin, vertical, color, 2, cv2.LINE_AA)
+
+
+def _button(frame, name, x, y, w, h, label, kind) -> None:
+    if kind == "primary":
+        fill, edge, ink = WINE, IRIS, CREAM
+    elif kind == "ghost":
+        fill, edge, ink = INK, IRIS, IRIS
+    else:
+        fill, edge, ink = TEAL, TEAL_EDGE, CREAM
     cv2.rectangle(frame, (x, y), (x + w, y + h), fill, -1)
-    cv2.rectangle(frame, (x, y), (x + w, y + h), WHITE, 2)
-    _text(frame, label, (x + 18, y + h // 2 + 10), WHITE, 0.85, 2)
+    cv2.rectangle(frame, (x, y), (x + w, y + h), edge, 2)
+    _brackets(frame, x, y, w, h, IRIS)
+    scale = 0.58
+    (tw, th), _ = cv2.getTextSize(label, FONT, scale, 2)
+    while tw > w - 16 and scale > 0.38:
+        scale = round(scale - 0.04, 2)
+        (tw, th), _ = cv2.getTextSize(label, FONT, scale, 2)
+    _text(frame, label, (x + max(8, (w - tw) // 2), y + (h + th) // 2), ink, scale, 2)
     buttons.append((name, x, y, x + w, y + h))
+
+
+def _place_buttons(frame, items, y, height, right_reserve) -> None:
+    """Lay the control row across the width that the eye inset leaves free."""
+    width = frame.shape[1]
+    pad, gap = 16, 10
+    usable = max(240, width - pad - right_reserve)
+    widths = []
+    for _name, label, _kind in items:
+        (tw, _th), _ = cv2.getTextSize(label, FONT, 0.58, 2)
+        widths.append(tw + 36)
+    total = sum(widths) + gap * (len(items) - 1)
+    room = usable - pad
+    if total > room and total:
+        widths = [max(72, int(item * room / total)) for item in widths]
+    x = pad
+    for (name, label, kind), button_w in zip(items, widths):
+        _button(frame, name, x, y, button_w, height, label, kind)
+        x += button_w + gap
 
 
 def _text(frame, s, org, color=WHITE, scale=0.7, thick=2):
@@ -352,7 +404,7 @@ def _paste_eye_inset(
     y0 = (
         h
         - ih
-        - 55
+        - 112
     )
 
     if x0 < 0 or y0 < 0:
@@ -602,6 +654,7 @@ def draw_hud(
     pending_pattern: str = "",
     recording: bool = False,
     pattern_notice: str = "",
+    room_label: str = "",
 ) -> None:
 
     h, w = frame.shape[:2]
@@ -784,6 +837,16 @@ def draw_hud(
             1,
         )
 
+    if mode != "assist":
+        _text(
+            frame,
+            "Send: left wink, then right wink",
+            (20, 220 if suggestions else 150),
+            YELLOW,
+            0.6,
+            1,
+        )
+
     # -------------------------------------------------------------
     # Flash message
     # -------------------------------------------------------------
@@ -880,18 +943,20 @@ def draw_hud(
     # Controls
     # -------------------------------------------------------------
 
-    _panel(frame, 0, h - 96, w, h, alpha=0.78)
-    _button(frame, "customize", 16, h - 78, 200, 58, "Customize", BUTTON)
-    mode_btn = "Switch to Morse" if mode == "assist" else "Switch to Assist"
-    _button(frame, "mode", 228, h - 78, 250, 58, mode_btn, BUTTON_ALT)
+    if room_label:
+        _text(frame, room_label[:110], (16, h - 118), IRIS, 0.55, 1)
+    _panel(frame, 0, h - 96, w, h, alpha=0.82)
+    controls = [
+        ("customize", "Customize", "card"),
+        ("mode", "Switch to Morse" if mode == "assist" else "Switch to Assist", "ghost"),
+    ]
     if mode != "assist":
-        _button(frame, "send", 490, h - 78, 200, 58, "Send", BUTTON)
-        record_x = 710
-    else:
-        record_x = 490
-    record_label = "Use pattern" if recording else "Record blinks"
-    _button(frame, "record", record_x, h - 78, 230, 58, record_label, BUTTON)
-    _text(frame, "q quit   Enter send", (record_x + 246, h - 40), WHITE, 0.65, 2)
+        controls.append(("send", "Send", "card"))
+    controls.append(("record", "Use pattern" if recording else "Record blinks", "card"))
+    controls.append(("room", "Open room", "primary"))
+    eye_reserve = min(330, w // 4) if show_eyes and reading.found else 16
+    _place_buttons(frame, controls, h - 78, 58, eye_reserve)
+    _text(frame, "q quit", (w - 150, 145), GREY, 0.55, 1)
 
     if show_reference:
         _draw_reference(

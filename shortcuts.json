@@ -18,6 +18,15 @@
       "action": "message",
       "message": "Hello from the other side...",
       "destination": "To the other side where you are able to see!!!"
+    },
+    {
+      "name": "Goodnight",
+      "pattern": "..-.",
+      "max_gap_ms": 1546.0,
+      "max_span_ms": 3905.0,
+      "action": "message",
+      "message": "Goodnight",
+      "destination": ""
     }
   ]
 }
