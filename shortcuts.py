@@ -53,9 +53,11 @@ class ShortcutMatcher:
         # eyes-open pause, so a long dash does not consume the gap budget.
         self.blinks: List[tuple[float, float, str]] = []
         self.recording = False
-        self.recorded: List[tuple[float, str]] = []
+        self.recorded: List[tuple[float, float, str]] = []
         self._commit_at: Optional[float] = None
         self._form_pattern = ""
+        self._form_max_gap_ms = 0.0
+        self._form_max_span_ms = 0.0
         self._notice = ""
         self._notice_until = 0.0
         self.reload(force=True)
@@ -99,8 +101,10 @@ class ShortcutMatcher:
             return {
                 "demo_location": self.demo_location,
                 "recording": self.recording,
-                "recorded_pattern": "".join(sym for _, sym in self.recorded),
+                "recorded_pattern": "".join(sym for _, _, sym in self.recorded) if self.recorded and len(self.recorded[0]) == 3 else "".join(sym for _, sym in self.recorded) if self.recorded else "",
                 "form_pattern": self._form_pattern,
+                "form_max_gap_ms": self._form_max_gap_ms,
+                "form_max_span_ms": self._form_max_span_ms,
                 "shortcuts": [asdict(sc) for sc in self.shortcuts],
             }
 
@@ -120,11 +124,31 @@ class ShortcutMatcher:
             self.blinks = []
             self._commit_at = None
 
-    def stop_recording(self) -> str:
+    def stop_recording(self) -> dict:
         with self._lock:
             self.recording = False
-            pattern = "".join(sym for _, sym in self.recorded)
-            return pattern
+            if not self.recorded:
+                return {"pattern": "", "max_gap_ms": config.SOS_MAX_GAP_MS, "max_span_ms": config.SOS_MAX_SPAN_MS}
+                
+            pattern = "".join(sym for _, _, sym in self.recorded)
+            
+            ends = [now_ms for now_ms, _, _ in self.recorded]
+            starts = [now_ms - duration_ms for now_ms, duration_ms, _ in self.recorded]
+            
+            span = ends[-1] - starts[0]
+            max_span_ms = max(1500.0, round(span * 1.35 + 400.0))
+            
+            if len(self.recorded) > 1:
+                gaps = [starts[i] - ends[i-1] for i in range(1, len(self.recorded))]
+                max_gap_ms = max(500.0, round(max(gaps) * 1.35 + 150.0))
+            else:
+                max_gap_ms = 500.0
+                
+            return {
+                "pattern": pattern,
+                "max_gap_ms": max_gap_ms,
+                "max_span_ms": max_span_ms
+            }
 
     def is_recording(self) -> bool:
         with self._lock:
@@ -136,11 +160,17 @@ class ShortcutMatcher:
                 return self._notice
             return ""
 
-    def take_form_pattern(self) -> str:
+    def take_form_pattern(self) -> dict:
         with self._lock:
-            pattern = self._form_pattern
+            data = {
+                "pattern": self._form_pattern,
+                "max_gap_ms": self._form_max_gap_ms,
+                "max_span_ms": self._form_max_span_ms,
+            }
             self._form_pattern = ""
-            return pattern
+            self._form_max_gap_ms = 0.0
+            self._form_max_span_ms = 0.0
+            return data
 
     def finish_recording(self) -> tuple:
         """Stop a camera recording.
@@ -148,7 +178,8 @@ class ShortcutMatcher:
         A pattern another shortcut already uses sets a camera notice and is
         not offered to the shortcut page. A new pattern is offered once.
         """
-        pattern = self.stop_recording()
+        res = self.stop_recording()
+        pattern = res["pattern"]
         with self._lock:
             shortcuts = list(self.shortcuts)
         owner = pattern_owner(shortcuts, pattern)
@@ -156,12 +187,16 @@ class ShortcutMatcher:
             if owner:
                 self.recorded = []
                 self._form_pattern = ""
+                self._form_max_gap_ms = 0.0
+                self._form_max_span_ms = 0.0
                 self._notice = (
                     f"{pattern} is already used by {owner}. Enter a new pattern."
                 )
                 self._notice_until = time.perf_counter() + 5.0
             elif pattern:
                 self._form_pattern = pattern
+                self._form_max_gap_ms = res["max_gap_ms"]
+                self._form_max_span_ms = res["max_span_ms"]
                 self._notice = ""
                 self._notice_until = 0.0
         return pattern, owner
@@ -177,7 +212,7 @@ class ShortcutMatcher:
             duration_ms = max(0.0, duration_ms)
             self.blinks.append((now_ms, duration_ms, symbol))
             if self.recording:
-                self.recorded.append((now_ms, symbol))
+                self.recorded.append((now_ms, duration_ms, symbol))
                 self.blinks = self.blinks[-12:]
                 self._commit_at = None
                 return None

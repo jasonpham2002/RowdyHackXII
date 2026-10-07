@@ -142,6 +142,8 @@ async function refresh() {
   if (data.form_pattern) {
     hidePatternWarning();
     document.querySelector("[name=pattern]").value = data.form_pattern;
+    if (data.form_max_gap_ms) document.querySelector("[name=max_gap_ms]").value = data.form_max_gap_ms;
+    if (data.form_max_span_ms) document.querySelector("[name=max_span_ms]").value = data.form_max_span_ms;
     fetch("/api/ack-form", {method: "POST"});
   }
   const body = document.getElementById("rows");
@@ -240,6 +242,8 @@ document.getElementById("stop").onclick = async () => {
   else if (data.pattern) {
     hidePatternWarning();
     document.querySelector("[name=pattern]").value = data.pattern;
+    if (data.max_gap_ms) document.querySelector("[name=max_gap_ms]").value = data.max_gap_ms;
+    if (data.max_span_ms) document.querySelector("[name=max_span_ms]").value = data.max_span_ms;
   }
   refresh();
 };
@@ -334,10 +338,13 @@ def start_workspace(matcher: ShortcutMatcher) -> None:
     @app.post("/api/stop")
     def stop():
         payload = request.get_json(silent=True) or {}
-        pattern = matcher.stop_recording()
+        res = matcher.stop_recording()
+        pattern = res["pattern"]
         current = [Shortcut(**row) for row in matcher.snapshot()["shortcuts"]]
         owner = pattern_owner(current, pattern, str(payload.get("name", "")))
-        return jsonify({"ok": True, "pattern": pattern, "owner": owner})
+        res["ok"] = True
+        res["owner"] = owner
+        return jsonify(res)
 
     def run() -> None:
         app.run(host="127.0.0.1", port=config.WORKSPACE_PORT, threaded=True, use_reloader=False)

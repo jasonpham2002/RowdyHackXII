@@ -47,6 +47,7 @@ import argparse
 import platform
 import threading
 import time
+import queue
 import webbrowser
 from typing import List, Optional
 
@@ -375,12 +376,60 @@ class TextEngine:
 # --------------------------------------------------------------------------- #
 # Camera.
 # --------------------------------------------------------------------------- #
-def open_camera(index: int) -> cv2.VideoCapture:
-    backend = cv2.CAP_DSHOW if platform.system() == "Windows" else 0
-    cap = cv2.VideoCapture(index, backend)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
-    return cap
+class ThreadedCamera:
+    """Continuously reads frames in a background thread to prevent buffer lag on macOS."""
+    def __init__(self, index: int = 0):
+        system = platform.system()
+        if system == "Windows":
+            backend = cv2.CAP_DSHOW
+        elif system == "Darwin":
+            backend = cv2.CAP_AVFOUNDATION
+        else:
+            backend = 0
+            
+        self.cap = cv2.VideoCapture(index, backend)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.FRAME_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.FRAME_HEIGHT)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+
+        self.ret, self.frame = self.cap.read()
+        self.running = True
+        self.lock = threading.Lock()
+        self.condition = threading.Condition(self.lock)
+        self.new_frame = False
+        
+        self.thread = threading.Thread(target=self._update, daemon=True)
+        self.thread.start()
+
+    def _update(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            with self.lock:
+                self.ret = ret
+                if ret:
+                    self.frame = frame
+                self.new_frame = True
+                self.condition.notify_all()
+            if not ret:
+                time.sleep(0.01)
+
+    def read(self):
+        with self.lock:
+            while self.running and not self.new_frame:
+                if not self.condition.wait(timeout=1.0):
+                    break
+            self.new_frame = False
+            return self.ret, (self.frame.copy() if self.frame is not None else None)
+
+    def release(self):
+        self.running = False
+        with self.lock:
+            self.condition.notify_all()
+        self.thread.join(timeout=1.0)
+        self.cap.release()
+
+    def isOpened(self):
+        return self.cap.isOpened()
 
 
 # --------------------------------------------------------------------------- #
@@ -521,7 +570,7 @@ def main() -> None:
         f"[room] {joined['name']} in {joined['room']} via {joined['server_url']}"
     )
 
-    cap = open_camera(args.camera)
+    cap = ThreadedCamera(args.camera)
 
     if not cap.isOpened():
         raise SystemExit(f"Could not open camera index {args.camera}")
@@ -565,10 +614,34 @@ def main() -> None:
     show_eyes = True
     fps = 0.0
     last = time.perf_counter()
-    seen_room_ids: set[str] = set()
-    room_primed = False
-    last_room_poll = 0.0
     room_label = ""
+    room_queue = queue.Queue()
+
+    def poll_room():
+        seen_ids = set()
+        primed = False
+        while True:
+            try:
+                info = active_room()
+                incoming, err = fetch_messages(info["room"], info["server_url"])
+                msgs = []
+                if not err:
+                    for item in incoming:
+                        mid = str(item.get("id", ""))
+                        if not mid or mid in seen_ids:
+                            continue
+                        seen_ids.add(mid)
+                        sender = str(item.get("sender", ""))
+                        text = str(item.get("text", "")).strip()
+                        if primed and sender != info["name"] and text:
+                            msgs.append(f"{sender}: {text[:80]}")
+                    primed = True
+                room_queue.put((f"Room {info['room']} · {info['name']}", msgs))
+            except Exception:
+                pass
+            time.sleep(1.0)
+
+    threading.Thread(target=poll_room, daemon=True).start()
 
     def send_confirmed_message() -> None:
         """Send only text visible on screen after explicit user confirmation."""
@@ -578,7 +651,8 @@ def main() -> None:
 
         engine.commit_word()
 
-        message = engine.display_text().strip()
+        raw = engine.display_text().strip()
+        message = engine.cleaned_preview()
 
         if not message:
             engine.flash("nothing to send")
@@ -726,22 +800,14 @@ def main() -> None:
             if dt > 0:
                 fps = 0.9 * fps + 0.1 * (1.0 / dt)
 
-            if now - last_room_poll > 1.0:
-                last_room_poll = now
-                info = active_room()
-                room_label = f"Room {info['room']} · {info['name']}"
-                incoming, room_error = fetch_messages(info["room"], info["server_url"])
-                if not room_error:
-                    for item in incoming:
-                        message_id = str(item.get("id", ""))
-                        if not message_id or message_id in seen_room_ids:
-                            continue
-                        seen_room_ids.add(message_id)
-                        sender = str(item.get("sender", ""))
-                        text = str(item.get("text", "")).strip()
-                        if room_primed and sender != info["name"] and text:
-                            engine.flash(f"{sender}: {text[:80]}", seconds=5)
-                    room_primed = True
+            try:
+                while True:
+                    rl, msgs = room_queue.get_nowait()
+                    room_label = rl
+                    for msg in msgs:
+                        engine.flash(msg, seconds=5)
+            except queue.Empty:
+                pass
 
             alert = actions.active_alert() or ""
 

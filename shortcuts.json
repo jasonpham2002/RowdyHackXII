@@ -20,13 +20,13 @@
       "destination": "To the other side where you are able to see!!!"
     },
     {
-      "name": "thangmatl",
-      "pattern": "-----",
-      "max_gap_ms": 400.0,
-      "max_span_ms": 2968.0,
+      "name": "Goodnight",
+      "pattern": "..-.",
+      "max_gap_ms": 1546.0,
+      "max_span_ms": 3905.0,
       "action": "message",
-      "message": "aaaaa",
-      "destination": "Texas"
+      "message": "Goodnight",
+      "destination": ""
     }
   ]
 }
