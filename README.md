@@ -1,185 +1,325 @@
-# RowdyHackXII — Hands-Free Eye-Blink Morse Decoder
+# BlinkChilling — Hands-Free Eye-Blink Communication
 
-A laptop webcam watches your eyes and turns blinks into two kinds of messages. **Assist mode** (the default) fires custom blink shortcuts, such as three fast dots for a simulated SOS. **Morse mode** spells letters one blink at a time and shows the raw line. A cleaned sentence is offered as a choice and is applied only after you pick it.
+An accessibility-focused communication prototype built for **RowdyHacks XII**.
 
-Built for a 720p HD webcam (1280×720). Alerts are simulated. Nothing in this project calls or texts 911.
+BlinkChilling uses a laptop webcam to turn intentional eye blinks into messages. **Assist mode** triggers customizable blink shortcuts for predefined messages and simulated alerts. **Morse mode** lets users compose text one letter at a time, review optional spelling corrections and word suggestions, and confirm a message before sending it.
 
-## What it does
+The project uses local computer vision and text-processing tools rather than a generative AI model or API.
 
+> **Prototype notice:** Alerts are simulated. BlinkChilling does not call or text 911 and is not a medical device or a replacement for emergency communication systems.
+
+## Features
+
+- **Webcam-based eye tracking:** MediaPipe FaceLandmarker detects eyelid landmarks for both eyes.
+- **Personalized calibration:** Open and closed eye measurements establish separate thresholds for each eye.
+- **Assist shortcuts:** Custom dot-and-dash patterns trigger predefined messages or simulated alerts.
+- **Morse composition:** Intentional blink duration determines dots and dashes for letter-by-letter input.
+- **User-controlled correction:** Sentence cleanup and word suggestions remain optional until explicitly selected.
+- **Gesture-based confirmation:** A left wink followed by a right wink sends the displayed Morse line.
+- **Shortcut editor:** A local browser interface supports editing, recording, and validating blink patterns.
+- **Eye-zoom detection:** The detector crops and upscales the eye region, with a full-frame fallback.
+- **Optional OS typing:** Confirmed Morse text can be typed into the focused application.
+- **Live feedback:** The HUD displays eye state, collected input, choices, and FPS.
+
+## How it works
+
+```text
+Webcam
+  → MediaPipe FaceLandmarker
+  → Eye Aspect Ratio (EAR)
+  → Blink / wink state machine
+  → Assist shortcuts or Morse decoding
+  → On-screen message
+  → Optional typing of confirmed text
 ```
-camera → MediaPipe FaceLandmarker → Eye Aspect Ratio (EAR)
-      → blink / wink state machine
-      → Assist shortcuts, or Morse letters
-      → on-screen message (optional: type the confirmed sentence)
+
+### Eye tracking and calibration
+
+MediaPipe identifies eyelid landmarks. The app calculates an Eye Aspect Ratio (EAR) for each eye by comparing its vertical opening with its width.
+
+A guided calibration records the user's open and closed EAR values and sets separate thresholds for each eye. This accommodates differences in eye shape and opening, although camera position, lighting, and tracking quality still affect detection.
+
+Eye zoom is enabled by default. After the first frame, the detector crops and upscales the region around the eyes to give that region more pixels. A yellow box marks the detection region. If tracking fails on the crop, detection falls back to the full frame.
+
+### Assist mode
+
+Assist mode matches saved dot-and-dash patterns to actions. The app waits one second after the last blink, selects the longest matching pattern, and displays the resulting message for five seconds.
+
+This prevents overlapping patterns, such as three dots and four dots, from both firing for the same completed gesture.
+
+The default shortcut is three fast dots:
+
+```text
+...
 ```
 
-1. **Track.** MediaPipe finds eyelid landmarks on both eyes.
-2. **Measure.** Each eye gets an Eye Aspect Ratio: vertical opening divided by eye width. A closed eye drops toward 0. Because it is a ratio, distance from the camera does not matter much.
-3. **Calibrate.** A short guided capture records *your* open and closed EAR for each eye and sets a personal threshold. Narrow or uneven eyes are handled separately.
-4. **Assist.** A saved pattern of dots and dashes runs an action. The app waits one second after the last blink, then shows only the longest match for five seconds. Three dots and four dots do not both fire.
-5. **Morse.** Hold length decides dot vs dash. A short pause ends a letter. A pause does not insert a space. The screen shows the raw line. When autocorrect would change it, that cleaned line is a right-wink choice and is not applied until you pick it. Other slots are word suggestions, three choices at most. A left wink followed by a right wink sends the line on screen. **Send** or Enter does the same.
+Each gap must be under 400 ms. The shortcut raises a simulated SOS alert and writes an entry to `dispatch_log.txt`.
 
-Eye zoom is on by default: after the first frame, detection crops and upscales the region around your eyes so small eyes get more pixels. A yellow box shows that region. If the zoomed crop misses your face, it falls back to the full frame.
+### Morse mode
 
-## Blink language
+Morse mode converts intentional blink durations into dots and dashes. A short pause completes the current letter, but it does not insert a space.
 
-| Gesture | Meaning |
+The HUD displays the raw text. When sentence cleanup would change it, the cleaned version appears as an optional choice rather than replacing the input automatically. Word suggestions fill the remaining slots, with at most three choices displayed.
+
+A left wink followed by a right wink sends the displayed line. The Send button and Enter key perform the same action. The sent message remains visible for five seconds before the text clears.
+
+## Blink and wink controls
+
+| Gesture or input | Meaning |
 | --- | --- |
-| Short blink, both eyes (~40–250 ms) | Dot |
-| Longer blink, both eyes (> 250 ms) | Dash |
-| Eyes open ~0.7 s | End the current letter |
-| Space key | End the word (insert a space). A pause does not add one. |
-| Left wink, then right wink within 2 s (Morse) | Send the line on screen |
-| Left wink alone (> 300 ms) | Backspace, after the 2 s send window |
-| Right wink once, then a 3 s pause (Morse) | Keep the raw line (choice #1) |
-| Right wink twice, then a 3 s pause (Morse) | Accept choice #2: the cleaned line when autocorrect is offered, otherwise the first word suggestion |
-| Right wink 3 times, then a 3 s pause (Morse) | Accept choice #3 when a third choice is listed |
-| Each suggestion wink | At most 1 second. A longer right blink does not count. |
-| `m` key, or the mode button | Toggle Assist mode and Morse mode |
+| Short blink with both eyes, approximately 40–250 ms | Dot |
+| Longer blink with both eyes, over 250 ms | Dash |
+| Eyes open for approximately 0.7 seconds | Complete the current Morse letter |
+| Space key | Insert a word break |
+| Left wink, then right wink within 2 seconds in Morse mode | Send the displayed line |
+| Left wink alone, over 300 ms | Backspace after the 2-second send window |
+| One right wink, then a 3-second pause in Morse mode | Keep the raw line, choice #1 |
+| Two right winks, then a 3-second pause in Morse mode | Select choice #2: the cleaned line when offered, otherwise the first word suggestion |
+| Three right winks, then a 3-second pause in Morse mode | Select choice #3 when available |
+| `m` key or mode button | Switch between Assist and Morse modes |
 
-Blinks shorter than ~40 ms are ignored (camera noise). A close of 40–250 ms is a dot. Anything held past 250 ms is a dash.
+Blinks shorter than approximately 40 ms are ignored as noise. Each right wink used for choice selection must last at most one second; a longer right-eye closure does not count as a selection wink.
+
+Timing values are configurable in `config.py`.
 
 ## Requirements
 
 - Windows, macOS, or Linux
-- Python 3.12 (tested with 3.12.10)
-- A webcam (built-in laptop camera is fine)
+- Python 3.12, tested with Python 3.12.10
+- A webcam
 - Git
+
+The documented camera setup targets a 720p HD webcam at 1280 × 720.
 
 ## Setup
 
+### Windows PowerShell
+
 ```powershell
-git clone https://github.com/jasonpham2002/RowdyHackXII.git
+git clone [https://github.com/jasonpham2002/RowdyHackXII.git](https://github.com/jasonpham2002/RowdyHackXII.git)
 cd RowdyHackXII
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-On macOS or Linux, activate with `source .venv/bin/activate` instead.
+### macOS or Linux
 
-The FaceLandmarker model is already in `models/face_landmarker.task`. If that file is missing, download it:
+```bash
+git clone [https://github.com/jasonpham2002/RowdyHackXII.git](https://github.com/jasonpham2002/RowdyHackXII.git)
+cd RowdyHackXII
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
 
-```powershell
+### FaceLandmarker model
+
+The model is included at:
+
+```text
+models/face_landmarker.task
+```
+
+If it is missing, run:
+
+```bash
 python download_model.py
 ```
 
-## How to run
+## Running the application
 
 From the project folder, with the virtual environment activated:
 
-```powershell
+```bash
 python main.py
 ```
 
-That opens the camera, walks you through calibration, then starts in **Assist mode**.
+The application opens the camera, guides you through calibration, and starts in Assist mode.
 
-Assist mode watches for custom blink shortcuts. The default shortcut is three fast dots (`...`, each gap under 400 ms), which raises a **simulated SOS** alert and writes a line to `dispatch_log.txt`. It does not call or text 911. Press `m`, or the mode button, to switch to Morse mode for letter-by-letter typing.
+Press `m` or use the mode button to switch to Morse mode.
 
-While the camera is running, click **Customize** (or press `o`) to open the shortcut page at [http://127.0.0.1:8765](http://127.0.0.1:8765). Type a pattern, or record blinks from that page. In Assist mode the camera also has **Record blinks**. Click it, blink the gesture, then click **Use pattern**. A new pattern is filled into the shortcut page. A dash is a blink held past 250 ms. For several dashes, allow about 1000 ms between blinks and 5000 ms for the whole gesture.
+### Launch options
 
-A pattern that another shortcut already uses is refused. Recording it on the camera shows a warning there, such as `... is already used by SOS. Enter a new pattern.` Typing that pattern on the shortcut page shows the same warning under the pattern box and clears it. Saving the shortcut you are editing, with its own current pattern, still works.
+| Option | Behavior |
+| --- | --- |
+| `--skip-calib` | Reuse `calibration.json`, or use defaults if no calibration exists |
+| `--morse` | Start in Morse mode |
+| `--type` | Also type the confirmed Morse line into the focused application |
+| `--camera 1` | Select a different webcam by index |
+| `--no-zoom` | Detect using the full frame only |
+| `--no-save` | Do not write calibration to `calibration.json` |
 
-In Morse mode the window shows the raw line you blinked. Autocorrect is not applied on its own. When a cleaned sentence would change that line, it appears as choice #2, and the text stays raw until you pick it. Word suggestions fill the remaining slots, three choices at most. Wink the left eye, then the right eye, to send the line on screen. Click **Send** or press Enter to do the same. A sent message stays up for five seconds, then the text clears. Assist shortcuts skip this step because their message is already written.
+Examples:
 
-Other ways to start:
-
-```powershell
-python main.py --skip-calib    # reuse calibration.json, or defaults if none exists
-python main.py --morse         # start in Morse mode instead of Assist
-python main.py --type          # on Send, also type the kept line into the focused app
-python main.py --camera 1      # use a different webcam
-python main.py --no-zoom       # detect on the full frame only
-python main.py --no-save       # do not write calibration.json
+```bash
+python main.py --morse
+python main.py --skip-calib
+python main.py --camera 1
+python main.py --morse --type
 ```
 
-### Calibration
+## Calibration
 
-Keep your head still and look at the camera.
+Keep your head still and face the camera during calibration.
 
-1. Countdown.
-2. Eyes **open** at a relaxed, natural width (about 4 seconds). Do not force them wide.
-3. Countdown.
-4. Eyes **gently closed** (about 2.5 seconds).
+1. Wait for the countdown.
+2. Keep your eyes naturally open for about four seconds. Do not force them wide.
+3. Wait for the next countdown.
+4. Gently close your eyes for about 2.5 seconds.
 
-Press `Esc` during calibration to skip and use the default threshold. Press `c` later to recalibrate if the lighting or your position changes.
+Press Esc during calibration to skip and use default thresholds. Press `c` while the application is running to recalibrate.
 
-If you have an old `calibration.json` from an earlier version, delete it or press `c` so the threshold matches the current detector.
+Recalibrate when lighting, camera position, or your seating position changes. If you have a `calibration.json` from an earlier version, delete it or press `c` to generate thresholds for the current detector.
 
-### Keyboard controls (while the window is focused)
+## Customizing Assist shortcuts
+
+While the camera application is running, click Customize or press `o` to open:
+
+[http://127.0.0.1:8765](http://127.0.0.1:8765)
+
+The shortcut page allows you to enter a pattern manually or record blinks.
+
+### Recording from the camera window
+
+1. Switch to Assist mode.
+2. Click Record blinks.
+3. Blink the desired dot-and-dash pattern.
+4. Click Use pattern.
+5. Complete the shortcut details on the browser page and save.
+
+A dash is a blink held longer than 250 ms. For patterns containing several dashes, allow approximately 1000 ms between blinks and 5000 ms for the complete gesture.
+
+### Duplicate-pattern validation
+
+Patterns already assigned to another shortcut are rejected.
+
+For example:
+
+```text
+... is already used by SOS. Enter a new pattern.
+```
+
+The camera recorder and browser page both report duplicate patterns. Editing an existing shortcut while retaining its own pattern is allowed.
+
+## Keyboard and interface controls
+
+These keyboard controls apply while the camera window is focused.
 
 | Key | Action |
 | --- | --- |
-| `q` or `Esc` | Quit |
-| `o` | Open the shortcut page |
-| `m` | Toggle Assist and Morse |
-| `Enter` | Send the Morse line on screen. A left wink then a right wink does this too. |
+| `q` or Esc | Quit |
+| `o` | Open the shortcut editor |
+| `m` | Toggle Assist and Morse modes |
+| Enter | Send the displayed Morse line |
 | `c` | Recalibrate |
 | `r` | Toggle the Morse reference chart |
 | `e` | Toggle the zoomed eye inset |
 | `z` | Toggle eye-zoom detection |
-| `t` | Toggle OS typing (`pynput`) |
-| `[` or `-` | Lower the close threshold (easier to count as open) |
+| `t` | Toggle OS typing through `pynput` |
+| `[` or `-` | Lower the close threshold |
 | `]` or `=` | Raise the close threshold |
-| `Backspace` | Delete the last letter |
-| `Space` | Insert a word break. A pause does not do this. |
+| Backspace | Delete the last letter |
+| Space | Insert a word break |
 
-On-screen buttons: **Customize**, **Switch to Assist / Morse**, **Record blinks** (Assist mode; it becomes **Use pattern** while recording), and, in Morse mode, **Send**.
+### On-screen buttons
 
-In Assist mode the HUD shows the blinks collected so far. In Morse mode it shows the raw line and the right-wink choices. Autocorrect stays in that list until you pick it. Above the buttons, an open/close bar reads **OPEN** in green, or **CLOSED** in red once your eyes pass the yellow line. FPS stays visible in both modes.
+- Customize
+- Switch to Assist / Morse
+- Record blinks in Assist mode
+- Use pattern while recording
+- Send in Morse mode
+
+### HUD feedback
+
+In Assist mode, the HUD displays the collected blink pattern. In Morse mode, it displays the raw line and available right-wink choices.
+
+An eye-state bar displays OPEN in green or CLOSED in red when the measured eye state passes the threshold. FPS remains visible in both modes.
+
+## Text correction and suggestions
+
+Sentence cleanup uses `symspellpy`, while word completions use `wordfreq`.
+
+The cleanup process preserves spaces entered with the Space key and can segment a continuous run of letters. It does not automatically replace the user's input.
+
+When a cleaned sentence differs from the raw line, it appears as choice #2. It replaces the raw line only after selection. Sending a message does not apply correction automatically.
 
 ## Tuning
 
-All timing and thresholds live in `config.py`. Useful ones:
+Timing and detection settings are defined in `config.py`.
 
-- `DOT_MAX_MS` — longest close that is still a dot (default 250). Longer than this is a dash.
-- `LETTER_GAP_MS` — pause that ends the current letter (default 700). A pause does not insert a space.
-- `SHORTCUT_HOLD_MS` — pause after the last Assist blink before the longest pattern wins (default 1000).
-- `ASSIST_SHOW_S` — how long an Assist or sent Morse message stays on screen (default 5).
-- `RIGHT_PICK_MAX_MS` / `RIGHT_SELECT_GAP_MS` — a suggestion wink must be at most 1 second, then the app waits 3 seconds to choose.
-- `BLINK_MIN_MS` — shortest blink that counts (default 40).
-- `CLOSE_RATIO` — where the calibrated threshold sits between your open and closed EAR (default 0.62; lower means a lighter wink counts as closed).
-- `DEFAULT_CLOSE_THRESH` — used only when you skip calibration (default 0.22).
+| Setting | Purpose | Documented default |
+| --- | --- | --- |
+| `DOT_MAX_MS` | Longest eye closure classified as a dot | 250 ms |
+| `LETTER_GAP_MS` | Open-eye pause that completes a Morse letter | 700 ms |
+| `SHORTCUT_HOLD_MS` | Assist pause before selecting the longest matching shortcut | 1000 ms |
+| `ASSIST_SHOW_S` | Display duration for Assist and sent Morse messages | 5 seconds |
+| `RIGHT_PICK_MAX_MS` | Maximum duration of a choice-selection wink | 1000 ms |
+| `RIGHT_SELECT_GAP_MS` | Pause before applying the selected wink-count choice | 3000 ms |
+| `BLINK_MIN_MS` | Minimum blink duration that counts | 40 ms |
+| `CLOSE_RATIO` | Position of the threshold between calibrated open and closed EAR | 0.62 |
+| `DEFAULT_CLOSE_THRESH` | Fallback threshold when calibration is skipped | 0.22 |
 
-During a demo, `[` and `]` are faster than editing the file. Changes are saved to `calibration.json`.
+During a demo, use `[` and `]` to adjust the threshold without editing the configuration file. Threshold changes are saved to `calibration.json`.
 
 ## Optional checks
 
-No camera needed:
+Run these checks from the project folder. They do not require a live camera.
 
-```powershell
+```bash
 python test_smoke.py
 python test_shortcuts.py
 python test_cleaner.py
 python test_choices.py
 ```
 
-`test_smoke.py` checks Morse decoding, word suggestions, the blink state machine, and that the face model loads. `test_shortcuts.py` checks Assist patterns. `test_cleaner.py` checks the Morse sentence cleanup. `test_choices.py` checks that autocorrect is a right-wink choice and is not applied until you pick it.
+| Check | Coverage |
+| --- | --- |
+| `test_smoke.py` | Morse decoding, word suggestions, blink state machine, and face-model loading |
+| `test_shortcuts.py` | Assist shortcut patterns |
+| `test_cleaner.py` | Morse sentence cleanup |
+| `test_choices.py` | Raw-text, autocorrect, and suggestion choices; correction requires explicit selection |
+
+These are development checks, not evidence of clinical validation or a measured accessibility outcome.
 
 ## Project layout
 
 | File | Role |
 | --- | --- |
-| `main.py` | Camera loop, modes, keyboard and button controls |
-| `tracker.py` | FaceLandmarker, EAR, eye zoom |
+| `main.py` | Application entry point, camera loop, modes, and controls |
+| `tracker.py` | MediaPipe FaceLandmarker integration, EAR measurements, and eye zoom |
 | `calibration.py` | Open/closed capture and per-eye thresholds |
-| `state_machine.py` | Dot, dash, letter gap, winks |
+| `state_machine.py` | Dot, dash, letter-gap, and wink handling |
 | `shortcuts.py` | Assist pattern matching |
 | `shortcuts.json` | Saved blink shortcuts |
-| `actions.py` | Simulated SOS and message display |
-| `workspace.py` | Shortcut page at `http://127.0.0.1:8765` |
-| `cleaner.py` | Morse raw text to a cleaned sentence, offered only as a choice |
-| `test_choices.py` | Right-wink raw, autocorrect, and suggestion choices |
-| `morse.py` | Morse table |
-| `predictor.py` | Word completions (`wordfreq`) |
+| `actions.py` | Simulated SOS actions and message display |
+| `workspace.py` | Local shortcut editor on port 8765 |
+| `cleaner.py` | Optional sentence cleanup |
+| `morse.py` | Morse-code lookup table |
+| `predictor.py` | Word completions through `wordfreq` |
 | `hud.py` | On-screen overlay and buttons |
-| `typer.py` | Optional keystrokes into the focused app on Send |
-| `config.py` | Tunable numbers |
-| `download_model.py` | Fetches the FaceLandmarker model if needed |
+| `typer.py` | Optional keystroke output to the focused application |
+| `config.py` | Timing and threshold settings |
+| `download_model.py` | FaceLandmarker model download helper |
+| `test_smoke.py` | Core smoke checks and model loading |
+| `test_shortcuts.py` | Assist-pattern checks |
+| `test_cleaner.py` | Sentence-cleanup checks |
+| `test_choices.py` | Explicit-selection and suggestion checks |
 
-## Notes
+## Limitations and usage notes
 
-- Sit in even light, face the camera, and keep your head fairly still. Recalibrate if you move or the room lighting changes.
-- OS typing (`--type` or `t`) uses `pynput`. In Morse mode it types the line on screen when you press Send, into whatever window is focused. On Windows this works out of the box; some systems need extra permissions.
-- The cleaned line uses `symspellpy`. It keeps spaces you insert with the space key and splits a run of letters that has no space. It is shown as a right-wink choice and replaces the raw line only after you pick it. **Send** does not autocorrect on its own.
-- Beeps on dot/dash use Windows `winsound` and are skipped on other platforms.
+- Use even lighting, face the camera, and keep your head reasonably still.
+- Recalibrate after changes in lighting or position.
+- Blink detection depends on camera quality, frame rate, eye visibility, and personal calibration.
+- Pauses complete letters but do not insert word breaks. Use the Space key to insert a space.
+- OS typing uses `pynput` and sends confirmed text to whichever application has focus. Verify the destination before sending.
+- Some operating systems require additional permissions for camera access or synthetic keyboard input.
+- Dot/dash beeps use Windows `winsound` and are skipped on other platforms.
+- Alerts are demonstrations only. No emergency service is contacted.
+- This hackathon prototype has not established medical suitability or reliability for safety-critical use.
+
+## Developers
+
+- [Dong Quan Tran](https://github.com/dong-quan-tran)
+
+<!-- Team members: add your preferred name and GitHub profile above. -->
