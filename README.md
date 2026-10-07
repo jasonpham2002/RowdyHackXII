@@ -321,5 +321,7 @@ These are development checks, not evidence of clinical validation or a measured 
 ## Developers
 
 - [Dong Quan Tran](https://github.com/dong-quan-tran)
+- [Khoi Anh Le Nguyen](https://github.com/ngkhoi111)
+
 
 <!-- Team members: add your preferred name and GitHub profile above. -->
