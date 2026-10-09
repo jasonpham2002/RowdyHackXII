@@ -8,12 +8,15 @@ Morse drafts are transmitted.
 from __future__ import annotations
 
 import json
+import re
 import socket
 import urllib.error
 import urllib.parse
 import urllib.request
 
 import config
+
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 def normalize_room(value: str) -> str:
@@ -55,6 +58,13 @@ def parse_room_link(value: str) -> tuple[str, str]:
     return f"{parsed.scheme}://{parsed.netloc}".rstrip("/"), room
 
 
+def clean_token(value) -> str:
+    token = str(value or "").strip()
+    if _TOKEN_RE.fullmatch(token):
+        return token
+    return ""
+
+
 def default_session() -> dict:
     url = f"http://127.0.0.1:{config.ROOM_PORT}"
     return {
@@ -62,6 +72,7 @@ def default_session() -> dict:
         "room": "ROWDY1",
         "server_url": url,
         "role": "host",
+        "token": "",
     }
 
 
@@ -82,6 +93,7 @@ def load_session(path=None) -> dict:
     session["room"] = room
     session["server_url"] = server_url or session["server_url"]
     session["role"] = role if role in ("host", "join") else "host"
+    session["token"] = clean_token(saved.get("token", ""))
     return session
 
 
@@ -99,25 +111,54 @@ def save_session(session: dict, path=None) -> dict:
             stored["room"] = parsed_room
     else:
         stored["server_url"] = lan_url()
+    if "token" in session:
+        stored["token"] = clean_token(session.get("token"))
+    else:
+        stored["token"] = load_session(path)["token"]
     session_path = path or config.ROOM_SESSION_FILE
     session_path.write_text(json.dumps(stored, indent=2), encoding="utf-8")
     return stored
+
+
+def _http_error_message(exc: urllib.error.HTTPError) -> str:
+    try:
+        payload = json.loads(exc.read().decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError):
+        payload = {}
+    if isinstance(payload, dict):
+        detail = str(payload.get("error", "")).strip()
+        if detail:
+            return detail[:200]
+    return f"room server returned HTTP {exc.code}"
+
+
+def _auth_headers(token: str, extra: dict | None = None) -> dict:
+    headers = dict(extra or {})
+    cleaned = clean_token(token)
+    if cleaned:
+        headers["Authorization"] = f"Bearer {cleaned}"
+    return headers
 
 
 def fetch_messages(
     room: str,
     server_url: str = "http://127.0.0.1:8766",
     timeout_seconds: float = 2.0,
+    token: str = "",
 ) -> tuple[list, str]:
     """Return ``(messages, error)``. Error is empty when the request worked."""
     room_code = normalize_room(room)
     endpoint = f"{server_url.rstrip('/')}/api/rooms/{room_code}/messages"
-    request = urllib.request.Request(endpoint, method="GET")
+    request = urllib.request.Request(
+        endpoint,
+        headers=_auth_headers(token),
+        method="GET",
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        return [], f"room server returned HTTP {exc.code}"
+        return [], _http_error_message(exc)
     except urllib.error.URLError:
         return [], "room server is unavailable"
     except TimeoutError:
@@ -138,6 +179,7 @@ def publish_confirmed_message(
     sender: str = "Eye Morse",
     server_url: str = "http://127.0.0.1:8766",
     timeout_seconds: float = 2.0,
+    token: str = "",
 ) -> tuple[bool, str]:
     """Post one confirmed message to a local Trusted Text Room.
 
@@ -167,7 +209,7 @@ def publish_confirmed_message(
     request = urllib.request.Request(
         endpoint,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers=_auth_headers(token, {"Content-Type": "application/json"}),
         method="POST",
     )
 
@@ -182,7 +224,7 @@ def publish_confirmed_message(
             return False, f"room server returned HTTP {response.status}"
 
     except urllib.error.HTTPError as exc:
-        return False, f"room server returned HTTP {exc.code}"
+        return False, _http_error_message(exc)
 
     except urllib.error.URLError:
         return False, "room server is unavailable"

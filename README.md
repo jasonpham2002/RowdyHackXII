@@ -20,6 +20,7 @@ The project uses local computer vision and text-processing tools rather than a g
 - **Eye-zoom detection:** The detector crops and upscales the eye region, with a full-frame fallback.
 - **Optional OS typing:** Confirmed Morse text can be typed into the focused application.
 - **Live feedback:** The HUD displays eye state, collected input, choices, and FPS.
+- **Accounts and saved room text:** A confirmed Morse line is stored only after login. Accounts and messages stay in PostgreSQL on the laptop that hosts the room.
 
 ## How it works
 
@@ -30,6 +31,7 @@ Webcam
   → Blink / wink state machine
   → Assist shortcuts or Morse decoding
   → On-screen message
+  → Confirmed text saved to the room after login
   → Optional typing of confirmed text
 ```
 
@@ -88,6 +90,7 @@ Timing values are configurable in `config.py`.
 - Python 3.12, tested with Python 3.12.10
 - A webcam
 - Git
+- PostgreSQL 16 for accounts and confirmed room messages
 
 The documented camera setup targets a 720p HD webcam at 1280 × 720.
 
@@ -127,6 +130,40 @@ If it is missing, run:
 python download_model.py
 ```
 
+### Text room database
+
+Accounts and confirmed messages need a running PostgreSQL database. Copy `.env.example` to `.env` in the project folder. Set `DATABASE_URL`, and replace `SECRET_KEY` with a long random string. `.env` stays on this laptop and is not committed.
+
+The example connection string is:
+
+```text
+postgresql://postgres:devpassword@127.0.0.1:5432/blinkchilling
+```
+
+`devpassword` is the password for this local database only. The password you type on the room page is a separate account password.
+
+With Docker available:
+
+```bash
+docker compose up -d
+```
+
+That starts PostgreSQL 16 and creates the `blinkchilling` database. The room server creates the account and message tables the first time it connects.
+
+On Windows, when PostgreSQL is already installed locally for this project, start it from the project folder before the camera app:
+
+```powershell
+.\start_postgres.ps1
+```
+
+The script prints `PostgreSQL is already running.` or `PostgreSQL is running.` From Command Prompt, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start_postgres.ps1
+```
+
+Run this again after a reboot. The database does not start by itself.
+
 ## Running the application
 
 From the project folder, with the virtual environment activated:
@@ -158,6 +195,56 @@ python main.py --skip-calib
 python main.py --camera 1
 python main.py --morse --type
 ```
+
+`python main.py` also starts the text room on port 8766. Leave that window open while you use the room page.
+
+## Accounts and the text room
+
+Open the room page while the camera app is running:
+
+[http://127.0.0.1:8766](http://127.0.0.1:8766)
+
+### Create an account
+
+1. Enter an email address, a password, and a display name.
+2. Use a password between 8 and 200 characters.
+3. The display name can be up to 40 characters. It is the name shown on each confirmed line.
+4. Click **Create account**.
+
+The page reports that you are logged in. This laptop saves that login in `room_session.json`, which is not committed. The camera uses the same login the next time you confirm a Morse line.
+
+Click **Create account** only the first time. On a later visit, click **Log in** with the same email and password. Email matching ignores letter case.
+
+### Log out
+
+Click **Log out** on the room page. This laptop forgets the login, and that login token stops working. The account remains in the database. Log in again when you want to send.
+
+### Host a room
+
+After you are logged in, click **Host this room**. The page shows a share link. Your saved room code stays in `room_session.json`. The default room code is `ROWDY1`.
+
+### Join from another laptop
+
+The other laptop does not receive a copy of the database. Accounts and messages stay on the host laptop. The host must be turned on, with PostgreSQL running and `python main.py` still open.
+
+1. Copy the share link from the host's room page.
+2. On the other laptop, open this project and run `python main.py`.
+3. Open [http://127.0.0.1:8766](http://127.0.0.1:8766) on that laptop.
+4. Paste the host link into **Host link, for the other laptop**.
+5. Create an account or log in. Because the link was pasted first, that account is saved in the host's database.
+6. Click **Join a room**.
+
+The other laptop stores only a login token locally. It does not store your password.
+
+### Send a confirmed line
+
+From the camera, switch to Morse mode and confirm the line with a left wink followed by a right wink, or press Enter. The room stores the text and shows the account's display name as the sender.
+
+From the room page, type in **Send a confirmed line** and click **Send**. That uses the same login.
+
+If the camera reports `Log in before using the room.`, open the room page and log in. The next confirmed line picks up the new login without restarting the camera.
+
+Camera frames, eyelid landmarks, calibration, and unfinished Morse drafts are not sent to the database.
 
 ## Calibration
 
@@ -271,7 +358,11 @@ python test_smoke.py
 python test_shortcuts.py
 python test_cleaner.py
 python test_choices.py
+python test_room.py
+python test_accounts.py
 ```
+
+`test_accounts.py` needs PostgreSQL running and `DATABASE_URL` set in `.env`.
 
 | Check | Coverage |
 | --- | --- |
@@ -279,6 +370,8 @@ python test_choices.py
 | `test_shortcuts.py` | Assist shortcut patterns |
 | `test_cleaner.py` | Morse sentence cleanup |
 | `test_choices.py` | Raw-text, autocorrect, and suggestion choices; correction requires explicit selection |
+| `test_room.py` | Room links, saved login token, and the room page |
+| `test_accounts.py` | Register, log in, log out, and stored room messages |
 
 These are development checks, not evidence of clinical validation or a measured accessibility outcome.
 
@@ -300,11 +393,20 @@ These are development checks, not evidence of clinical validation or a measured 
 | `hud.py` | On-screen overlay and buttons |
 | `typer.py` | Optional keystroke output to the focused application |
 | `config.py` | Timing and threshold settings |
+| `chat_server.py` | Text room page, login, logout, and message routes on port 8766 |
+| `chat_client.py` | Sends the saved login token with confirmed camera text |
+| `db.py` | PostgreSQL accounts, login tokens, and room messages |
+| `docker-compose.yml` | Local PostgreSQL service for the text room |
+| `start_postgres.ps1` | Starts the local Windows PostgreSQL install |
+| `.env.example` | Example `DATABASE_URL` and `SECRET_KEY` |
+| `room_session.json` | Saved room code, server address, and login token; not committed |
 | `download_model.py` | FaceLandmarker model download helper |
 | `test_smoke.py` | Core smoke checks and model loading |
 | `test_shortcuts.py` | Assist-pattern checks |
 | `test_cleaner.py` | Sentence-cleanup checks |
 | `test_choices.py` | Explicit-selection and suggestion checks |
+| `test_room.py` | Room-link and room-page checks |
+| `test_accounts.py` | Account and stored-message checks |
 
 ## Limitations and usage notes
 
@@ -316,6 +418,8 @@ These are development checks, not evidence of clinical validation or a measured 
 - Some operating systems require additional permissions for camera access or synthetic keyboard input.
 - Dot/dash beeps use Windows `winsound` and are skipped on other platforms.
 - Alerts are demonstrations only. No emergency service is contacted.
+- Accounts and confirmed messages exist only in the host laptop's PostgreSQL database. Another computer can use them by joining that host's room page while the host is running.
+- Keep `.env` on the host laptop. It contains the database connection string.
 - This hackathon prototype has not established medical suitability or reliability for safety-critical use.
 
 ## Developers
@@ -323,6 +427,7 @@ These are development checks, not evidence of clinical validation or a measured 
 - [Dong Quan Tran](https://github.com/dong-quan-tran)
 - [Khoi Anh Le Nguyen](https://github.com/ngkhoi111)
 - [Quang Tuong Pham](https://github.com/jasonpham2002)
+- [minhle211](https://github.com/minhle211)
 
 
 <!-- Team members: add your preferred name and GitHub profile above. -->

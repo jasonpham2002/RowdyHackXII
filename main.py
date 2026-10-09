@@ -623,7 +623,11 @@ def main() -> None:
         while True:
             try:
                 info = active_room()
-                incoming, err = fetch_messages(info["room"], info["server_url"])
+                incoming, err = fetch_messages(
+                    info["room"],
+                    info["server_url"],
+                    token=str(info.get("token", "")),
+                )
                 msgs = []
                 if not err:
                     for item in incoming:
@@ -636,7 +640,10 @@ def main() -> None:
                         if primed and sender != info["name"] and text:
                             msgs.append(f"{sender}: {text[:80]}")
                     primed = True
-                room_queue.put((f"Room {info['room']} · {info['name']}", msgs))
+                label = f"Room {info['room']} · {info['name']}"
+                if err:
+                    label = f"Room {info['room']} · {err[:60]}"
+                room_queue.put((label, msgs))
             except Exception:
                 pass
             time.sleep(1.0)
@@ -677,6 +684,7 @@ def main() -> None:
             room=joined["room"],
             sender=joined["name"],
             server_url=joined["server_url"],
+            token=str(joined.get("token", "")),
         )
 
         if delivered:

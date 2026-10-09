@@ -11,6 +11,10 @@ calibration.json
 dispatch_log.txt
 room_session.json
 
+# Local database and login secrets
+.env
+.room_secret
+
 # Test assets
 portrait.jpg
 
