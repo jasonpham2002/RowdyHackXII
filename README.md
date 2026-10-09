@@ -427,7 +427,6 @@ These are development checks, not evidence of clinical validation or a measured 
 - [Dong Quan Tran](https://github.com/dong-quan-tran)
 - [Khoi Anh Le Nguyen](https://github.com/ngkhoi111)
 - [Quang Tuong Pham](https://github.com/jasonpham2002)
-- [minhle211](https://github.com/minhle211)
-
+- [Vu Quang Minh Le](https://github.com/minhle211)
 
 <!-- Team members: add your preferred name and GitHub profile above. -->
